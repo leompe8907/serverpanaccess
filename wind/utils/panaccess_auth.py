@@ -152,3 +152,99 @@ def login() -> str:
             f"Error inesperado al intentar login con PanAccess: {str(e)}"
         )
 
+
+def logged_in(session_id: str) -> bool:
+    """
+    Verifica si un sessionId de PanAccess sigue siendo válido.
+    
+    Esta función puede usarse para confirmar si la sesión sigue activa.
+    Si retorna False, será necesario hacer login nuevamente.
+    
+    Args:
+        session_id: El sessionId retornado por la función login()
+    
+    Returns:
+        True si la sesión es válida, False si está caducada o es inválida
+    
+    Raises:
+        PanAccessConnectionError: Si hay problemas de conexión
+        PanAccessTimeoutError: Si la petición excede el timeout
+        PanAccessAPIError: Si hay un error genérico de la API
+    """
+    # Validar configuración
+    PanaccessConfig.validate()
+    
+    if not session_id:
+        return False
+    
+    base_url = PanaccessConfig.PANACCESS
+    
+    # Preparar payload
+    payload = {
+        "sessionId": session_id
+    }
+    
+    # URL del endpoint
+    url = f"{base_url}?f=cvLoggedIn&requestMode=function"
+    
+    headers = {"Content-Type": "application/x-www-form-urlencoded"}
+    param_string = urlencode(payload)
+    
+    try:
+        response = requests.post(
+            url,
+            data=param_string,
+            headers=headers,
+            timeout=30
+        )
+        
+        # Verificar status code
+        if response.status_code != 200:
+            raise PanAccessAPIError(
+                f"Respuesta inesperada del servidor PanAccess: {response.status_code}",
+                status_code=response.status_code
+            )
+        
+        # Parsear respuesta JSON
+        try:
+            json_response = response.json()
+        except ValueError as e:
+            raise PanAccessAPIError(
+                f"Respuesta inválida del servidor PanAccess: {response.text}",
+                status_code=response.status_code
+            )
+        
+        # Verificar si la llamada fue exitosa
+        if not json_response.get("success"):
+            # Si la llamada falla, asumimos que la sesión no es válida
+            return False
+        
+        # La respuesta debe ser un booleano
+        answer = json_response.get("answer")
+        
+        # PanAccess puede retornar el booleano como string o como booleano
+        if isinstance(answer, bool):
+            return answer
+        elif isinstance(answer, str):
+            return answer.lower() in ('true', '1', 'yes')
+        else:
+            # Si no es booleano ni string, asumimos False
+            return False
+        
+    except requests.exceptions.Timeout:
+        raise PanAccessTimeoutError(
+            "Timeout al intentar verificar sesión con PanAccess. "
+            "El servidor no respondió en 30 segundos."
+        )
+    except requests.exceptions.ConnectionError as e:
+        raise PanAccessConnectionError(
+            f"Error de conexión con PanAccess: {str(e)}"
+        )
+    except (PanAccessTimeoutError, PanAccessConnectionError):
+        # Re-lanzar excepciones de conexión/timeout
+        raise
+    except Exception as e:
+        raise PanAccessAPIError(
+            f"Error inesperado al verificar sesión con PanAccess: {str(e)}"
+        )
+

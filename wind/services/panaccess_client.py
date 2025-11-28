@@ -9,7 +9,7 @@ from urllib.parse import urlencode
 from typing import Dict, Any, Optional
 
 from appConfig import PanaccessConfig
-from wind.utils.panaccess_auth import login
+from wind.utils.panaccess_auth import login, logged_in
 from wind.exceptions import (
     PanAccessException,
     PanAccessConnectionError,
@@ -51,12 +51,40 @@ class PanAccessClient:
         self.session_id = login()
         return self.session_id
     
+    def _ensure_valid_session(self):
+        """
+        Asegura que haya una sesión válida.
+        
+        Si no hay sessionId o si el sessionId está caducado,
+        realiza un nuevo login automáticamente.
+        """
+        # Si no hay sessionId, autenticar
+        if not self.session_id:
+            self.authenticate()
+            return
+        
+        # Verificar si la sesión sigue siendo válida
+        try:
+            is_valid = logged_in(self.session_id)
+            if not is_valid:
+                # Sesión caducada, refrescar
+                self.authenticate()
+        except (PanAccessConnectionError, PanAccessTimeoutError, PanAccessAPIError):
+            # Si hay error al verificar, intentar refrescar la sesión
+            # (puede ser un problema temporal de red)
+            try:
+                self.authenticate()
+            except Exception:
+                # Si el refresh también falla, limpiar sessionId
+                self.session_id = None
+                raise
+    
     def call(self, func_name: str, parameters: Dict[str, Any] = None, timeout: int = 60) -> Dict[str, Any]:
         """
         Llama a una función remota del API PanAccess.
         
-        Si no hay sessionId, intenta autenticarse automáticamente antes
-        de realizar la llamada (excepto para la función 'login').
+        Si no hay sessionId o si está caducado, intenta autenticarse/refrescar
+        automáticamente antes de realizar la llamada (excepto para la función 'login').
         
         Args:
             func_name: Nombre de la función a llamar (ej: 'cvGetSubscriber')
@@ -72,12 +100,12 @@ class PanAccessClient:
         if parameters is None:
             parameters = {}
         
-        # Autenticar automáticamente si no hay sessionId y no es login
-        if not self.session_id and func_name != 'login':
-            self.authenticate()
+        # Asegurar sesión válida antes de hacer la llamada (excepto para login)
+        if func_name != 'login' and func_name != 'cvLoggedIn':
+            self._ensure_valid_session()
         
         # Agregar sessionId a los parámetros si existe y no es login
-        if self.session_id and func_name != 'login':
+        if self.session_id and func_name != 'login' and func_name != 'cvLoggedIn':
             parameters['sessionId'] = self.session_id
         
         # Construir URL
@@ -177,4 +205,24 @@ class PanAccessClient:
             True si hay sessionId, False en caso contrario
         """
         return self.session_id is not None
+    
+    def check_session(self) -> bool:
+        """
+        Verifica si la sesión actual sigue siendo válida.
+        
+        Returns:
+            True si la sesión es válida, False si está caducada
+        
+        Raises:
+            PanAccessException: Si hay algún error al verificar la sesión
+        """
+        if not self.session_id:
+            return False
+        
+        try:
+            return logged_in(self.session_id)
+        except PanAccessException:
+            # Si hay error al verificar, asumimos que la sesión no es válida
+            self.session_id = None
+            return False
 
