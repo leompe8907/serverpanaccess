@@ -7,7 +7,7 @@ from rest_framework.response import Response
 from rest_framework import status
 
 from wind.utils.panaccess_auth import login, logged_in
-from wind.services import PanAccessClient
+from wind.services import PanAccessClient, get_panaccess
 from wind.exceptions import (
     PanAccessAuthenticationError,
     PanAccessConnectionError,
@@ -71,6 +71,47 @@ def test_login(request):
         return Response({
             'success': False,
             'error_type': 'PanAccessException',
+            'message': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+    except Exception as e:
+        return Response({
+            'success': False,
+            'error_type': 'Exception',
+            'message': f'Error inesperado: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def test_singleton(request):
+    """
+    Vista de prueba para el singleton de PanAccess.
+    
+    Demuestra cómo usar el singleton que se inicializa al arrancar Django.
+    """
+    try:
+        # Obtener el singleton (se inicializa automáticamente al arrancar Django)
+        panaccess = get_panaccess()
+        
+        # Hacer una llamada de prueba (el singleton maneja la sesión automáticamente)
+        # Nota: Esta es una llamada de ejemplo, ajusta según la función que necesites
+        result = panaccess.call("cvLoggedIn", {
+            "sessionId": panaccess.client.session_id
+        })
+        
+        return Response({
+            'success': True,
+            'message': 'Singleton funcionando correctamente',
+            'has_session': panaccess.client.is_authenticated(),
+            'session_id': panaccess.client.session_id[:20] + '...' if panaccess.client.session_id else None,
+            'result': result
+        }, status=status.HTTP_200_OK)
+        
+    except PanAccessException as e:
+        return Response({
+            'success': False,
+            'error_type': type(e).__name__,
             'message': str(e)
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         

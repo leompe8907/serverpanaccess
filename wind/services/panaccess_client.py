@@ -4,6 +4,7 @@ Cliente para interactuar con la API de PanAccess.
 Este módulo proporciona una clase cliente para realizar llamadas a la API
 de PanAccess, manejando automáticamente la autenticación y el sessionId.
 """
+import logging
 import requests
 from urllib.parse import urlencode
 from typing import Dict, Any, Optional
@@ -17,6 +18,8 @@ from wind.exceptions import (
     PanAccessAPIError,
     PanAccessSessionError
 )
+
+logger = logging.getLogger(__name__)
 
 
 class PanAccessClient:
@@ -104,6 +107,13 @@ class PanAccessClient:
         if func_name != 'login' and func_name != 'cvLoggedIn':
             self._ensure_valid_session()
         
+        # Preparar parámetros para logging (ocultar sessionId por seguridad)
+        log_parameters = parameters.copy()
+        if 'sessionId' in log_parameters:
+            session_id_value = log_parameters['sessionId']
+            if session_id_value:
+                log_parameters['sessionId'] = f"{session_id_value[:20]}..." if len(str(session_id_value)) > 20 else "[REDACTED]"
+        
         # Agregar sessionId a los parámetros si existe y no es login
         if self.session_id and func_name != 'login' and func_name != 'cvLoggedIn':
             parameters['sessionId'] = self.session_id
@@ -115,6 +125,12 @@ class PanAccessClient:
         headers = {"Content-Type": "application/x-www-form-urlencoded"}
         param_string = urlencode(parameters)
         
+        # Log de la petición
+        logger.info(f"📞 [call] Llamando función '{func_name}' - URL: {url}")
+        logger.info(f"📞 [call] Parámetros: {log_parameters}")
+        logger.debug(f"📞 [call] Headers: {headers}")
+        logger.debug(f"📞 [call] Timeout: {timeout}s")
+        
         try:
             response = requests.post(
                 url,
@@ -123,23 +139,36 @@ class PanAccessClient:
                 timeout=timeout
             )
             
+            # Log del status code
+            logger.info(f"📡 [call] Respuesta recibida para '{func_name}' - Status Code: {response.status_code}")
+            
             response.raise_for_status()
             
             # Parsear respuesta JSON
             try:
                 json_response = response.json()
+                logger.info(f"📦 [call] Respuesta JSON completa para '{func_name}': {json_response}")
             except ValueError as e:
+                logger.error(f"❌ [call] Error al parsear JSON para '{func_name}': {str(e)}")
+                logger.error(f"❌ [call] Respuesta raw: {response.text}")
                 raise PanAccessAPIError(
                     f"Respuesta inválida del servidor PanAccess: {response.text}",
                     status_code=response.status_code
                 )
             
             # Verificar si hay error en la respuesta
-            if not json_response.get("success"):
+            success = json_response.get("success")
+            logger.info(f"✅ [call] Campo 'success' para '{func_name}': {success}")
+            
+            if not success:
                 error_message = json_response.get("errorMessage", "Error desconocido")
+                answer = json_response.get("answer")
+                logger.error(f"❌ [call] Llamada a '{func_name}' falló - Error: {error_message}")
+                logger.error(f"❌ [call] Campo 'answer' para '{func_name}': {answer}")
                 
                 # Si el error es de sesión, limpiar sessionId
                 if "session" in error_message.lower() or "logged" in error_message.lower():
+                    logger.warning(f"⚠️ [call] Error de sesión detectado para '{func_name}', limpiando sessionId")
                     self.session_id = None
                     raise PanAccessSessionError(
                         f"Error de sesión: {error_message}"
@@ -150,27 +179,38 @@ class PanAccessClient:
                     status_code=response.status_code
                 )
             
+            # Log del resultado exitoso
+            answer = json_response.get("answer")
+            logger.info(f"✅ [call] Llamada a '{func_name}' exitosa")
+            logger.info(f"📋 [call] Campo 'answer' para '{func_name}': {answer} (tipo: {type(answer).__name__})")
+            
             return json_response
             
         except requests.exceptions.Timeout:
+            logger.error(f"⏱️ [call] Timeout al llamar a '{func_name}' ({timeout} segundos)")
             raise PanAccessTimeoutError(
                 f"Timeout al llamar a {func_name}. "
                 f"El servidor no respondió en {timeout} segundos."
             )
         except requests.exceptions.ConnectionError as e:
+            logger.error(f"🔌 [call] Error de conexión al llamar a '{func_name}': {str(e)}")
             raise PanAccessConnectionError(
                 f"Error de conexión con PanAccess: {str(e)}"
             )
         except requests.exceptions.HTTPError as e:
             status_code = response.status_code if 'response' in locals() else None
+            logger.error(f"❌ [call] Error HTTP al llamar a '{func_name}': {str(e)} (Status: {status_code})")
+            if 'response' in locals():
+                logger.error(f"❌ [call] Respuesta completa: {response.text}")
             raise PanAccessAPIError(
                 f"Error HTTP al llamar a {func_name}: {str(e)}",
                 status_code=status_code
             )
-        except (PanAccessException, PanAccessAPIError, PanAccessTimeoutError, PanAccessConnectionError):
+        except (PanAccessException, PanAccessAPIError, PanAccessTimeoutError, PanAccessConnectionError, PanAccessSessionError):
             # Re-lanzar nuestras excepciones personalizadas
             raise
         except Exception as e:
+            logger.error(f"💥 [call] Error inesperado al llamar a '{func_name}': {str(e)}", exc_info=True)
             raise PanAccessAPIError(
                 f"Error inesperado al llamar a {func_name}: {str(e)}"
             )

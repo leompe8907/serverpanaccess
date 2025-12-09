@@ -5,6 +5,7 @@ Este módulo proporciona funciones para autenticarse con la API de PanAccess
 y obtener un sessionId para realizar llamadas posteriores.
 """
 import hashlib
+import logging
 import requests
 from urllib.parse import urlencode
 
@@ -15,6 +16,8 @@ from wind.exceptions import (
     PanAccessTimeoutError,
     PanAccessAPIError
 )
+
+logger = logging.getLogger(__name__)
 
 
 def hash_password(password: str, salt: str = None) -> str:
@@ -86,6 +89,11 @@ def login() -> str:
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
     param_string = urlencode(payload)
     
+    # Log de la petición
+    logger.info(f"🔐 [login] Iniciando login - URL: {url}")
+    logger.debug(f"🔐 [login] Payload (sin password): {{'username': '{username}', 'password': '[HASHED]', 'apiToken': '[REDACTED]'}}")
+    logger.debug(f"🔐 [login] Headers: {headers}")
+    
     try:
         response = requests.post(
             url,
@@ -94,8 +102,13 @@ def login() -> str:
             timeout=30
         )
         
+        # Log del status code
+        logger.info(f"📡 [login] Respuesta recibida - Status Code: {response.status_code}")
+        
         # Verificar status code
         if response.status_code != 200:
+            logger.error(f"❌ [login] Status code inesperado: {response.status_code}")
+            logger.error(f"❌ [login] Respuesta completa: {response.text}")
             raise PanAccessAPIError(
                 f"Respuesta inesperada del servidor PanAccess: {response.status_code}",
                 status_code=response.status_code
@@ -104,18 +117,27 @@ def login() -> str:
         # Parsear respuesta JSON
         try:
             json_response = response.json()
+            logger.info(f"📦 [login] Respuesta JSON completa: {json_response}")
         except ValueError as e:
+            logger.error(f"❌ [login] Error al parsear JSON: {str(e)}")
+            logger.error(f"❌ [login] Respuesta raw: {response.text}")
             raise PanAccessAPIError(
                 f"Respuesta inválida del servidor PanAccess: {response.text}",
                 status_code=response.status_code
             )
         
         # Verificar si el login fue exitoso
-        if not json_response.get("success"):
+        success = json_response.get("success")
+        logger.info(f"✅ [login] Campo 'success' en respuesta: {success}")
+        
+        if not success:
             error_message = json_response.get("errorMessage", "Login fallido sin mensaje explícito")
+            answer = json_response.get("answer")
+            logger.error(f"❌ [login] Login fallido - Error: {error_message}")
+            logger.error(f"❌ [login] Campo 'answer': {answer}")
             
             # Si retorna 'false' como string, es error de autenticación
-            if json_response.get("answer") == "false" or error_message:
+            if answer == "false" or error_message:
                 raise PanAccessAuthenticationError(
                     f"Error de autenticación: {error_message}"
                 )
@@ -127,20 +149,25 @@ def login() -> str:
         
         # Extraer sessionId
         session_id = json_response.get("answer")
+        logger.info(f"🔑 [login] Campo 'answer' (sessionId): {session_id[:20] + '...' if session_id and len(session_id) > 20 else session_id}")
         
         if not session_id:
+            logger.error("❌ [login] No se recibió sessionId en la respuesta")
             raise PanAccessAPIError(
                 "Login exitoso pero no se recibió sessionId en la respuesta"
             )
         
+        logger.info(f"✅ [login] Login exitoso - SessionId obtenido (longitud: {len(session_id) if session_id else 0} caracteres)")
         return session_id
         
     except requests.exceptions.Timeout:
+        logger.error("⏱️ [login] Timeout al intentar login (30 segundos)")
         raise PanAccessTimeoutError(
             "Timeout al intentar conectarse con PanAccess. "
             "El servidor no respondió en 30 segundos."
         )
     except requests.exceptions.ConnectionError as e:
+        logger.error(f"🔌 [login] Error de conexión: {str(e)}")
         raise PanAccessConnectionError(
             f"Error de conexión con PanAccess: {str(e)}"
         )
@@ -148,6 +175,7 @@ def login() -> str:
         # Re-lanzar nuestras excepciones personalizadas
         raise
     except Exception as e:
+        logger.error(f"💥 [login] Error inesperado: {str(e)}", exc_info=True)
         raise PanAccessAPIError(
             f"Error inesperado al intentar login con PanAccess: {str(e)}"
         )
@@ -175,6 +203,7 @@ def logged_in(session_id: str) -> bool:
     PanaccessConfig.validate()
     
     if not session_id:
+        logger.debug("🔍 [logged_in] No hay session_id proporcionado, retornando False")
         return False
     
     base_url = PanaccessConfig.PANACCESS
@@ -190,6 +219,11 @@ def logged_in(session_id: str) -> bool:
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
     param_string = urlencode(payload)
     
+    # Log de la petición
+    logger.info(f"🔍 [logged_in] Verificando sesión - URL: {url}")
+    logger.debug(f"🔍 [logged_in] Payload: {payload}")
+    logger.debug(f"🔍 [logged_in] Headers: {headers}")
+    
     try:
         response = requests.post(
             url,
@@ -198,8 +232,13 @@ def logged_in(session_id: str) -> bool:
             timeout=30
         )
         
+        # Log del status code
+        logger.info(f"📡 [logged_in] Respuesta recibida - Status Code: {response.status_code}")
+        
         # Verificar status code
         if response.status_code != 200:
+            logger.error(f"❌ [logged_in] Status code inesperado: {response.status_code}")
+            logger.error(f"❌ [logged_in] Respuesta completa: {response.text}")
             raise PanAccessAPIError(
                 f"Respuesta inesperada del servidor PanAccess: {response.status_code}",
                 status_code=response.status_code
@@ -208,42 +247,61 @@ def logged_in(session_id: str) -> bool:
         # Parsear respuesta JSON
         try:
             json_response = response.json()
+            logger.info(f"📦 [logged_in] Respuesta JSON completa: {json_response}")
         except ValueError as e:
+            logger.error(f"❌ [logged_in] Error al parsear JSON: {str(e)}")
+            logger.error(f"❌ [logged_in] Respuesta raw: {response.text}")
             raise PanAccessAPIError(
                 f"Respuesta inválida del servidor PanAccess: {response.text}",
                 status_code=response.status_code
             )
         
         # Verificar si la llamada fue exitosa
-        if not json_response.get("success"):
+        success = json_response.get("success")
+        logger.info(f"✅ [logged_in] Campo 'success' en respuesta: {success}")
+        
+        if not success:
             # Si la llamada falla, asumimos que la sesión no es válida
+            error_message = json_response.get("errorMessage", "Sin mensaje de error")
+            logger.warning(f"⚠️ [logged_in] Llamada no exitosa - Error: {error_message}")
+            logger.info(f"🔍 [logged_in] Resultado: Sesión NO válida (False)")
             return False
         
         # La respuesta debe ser un booleano
         answer = json_response.get("answer")
+        logger.info(f"📋 [logged_in] Campo 'answer' en respuesta: {answer} (tipo: {type(answer).__name__})")
         
         # PanAccess puede retornar el booleano como string o como booleano
         if isinstance(answer, bool):
-            return answer
+            result = answer
+            logger.info(f"✅ [logged_in] Resultado final: Sesión {'VÁLIDA' if result else 'NO VÁLIDA'} ({result})")
+            return result
         elif isinstance(answer, str):
-            return answer.lower() in ('true', '1', 'yes')
+            result = answer.lower() in ('true', '1', 'yes')
+            logger.info(f"✅ [logged_in] Resultado final (convertido desde string): Sesión {'VÁLIDA' if result else 'NO VÁLIDA'} ({result})")
+            return result
         else:
             # Si no es booleano ni string, asumimos False
+            logger.warning(f"⚠️ [logged_in] Tipo de 'answer' inesperado: {type(answer).__name__}, asumiendo False")
+            logger.info(f"🔍 [logged_in] Resultado: Sesión NO válida (False)")
             return False
         
     except requests.exceptions.Timeout:
+        logger.error("⏱️ [logged_in] Timeout al verificar sesión (30 segundos)")
         raise PanAccessTimeoutError(
             "Timeout al intentar verificar sesión con PanAccess. "
             "El servidor no respondió en 30 segundos."
         )
     except requests.exceptions.ConnectionError as e:
+        logger.error(f"🔌 [logged_in] Error de conexión: {str(e)}")
         raise PanAccessConnectionError(
             f"Error de conexión con PanAccess: {str(e)}"
         )
-    except (PanAccessTimeoutError, PanAccessConnectionError):
-        # Re-lanzar excepciones de conexión/timeout
+    except (PanAccessTimeoutError, PanAccessConnectionError, PanAccessAPIError):
+        # Re-lanzar excepciones de conexión/timeout/API
         raise
     except Exception as e:
+        logger.error(f"💥 [logged_in] Error inesperado: {str(e)}", exc_info=True)
         raise PanAccessAPIError(
             f"Error inesperado al verificar sesión con PanAccess: {str(e)}"
         )
