@@ -12,7 +12,15 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 import os
 import sys
 from pathlib import Path
+from celery.schedules import crontab, timedelta
+from dotenv import load_dotenv
 from appConfig import DjangoConfig
+
+# Build paths inside the project like this: BASE_DIR / 'subdir'.
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Cargar variables de entorno desde .env (si existe)
+load_dotenv(BASE_DIR / '.env')
 
 # Configurar encoding UTF-8 para Windows
 if sys.platform == 'win32':
@@ -24,9 +32,6 @@ if sys.platform == 'win32':
 
 # Validar las configuraciones
 DjangoConfig.validate()
-
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
-BASE_DIR = Path(__file__).resolve().parent.parent
 
 
 # Quick-start development settings - unsuitable for production
@@ -54,7 +59,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'corsheaders',
-    'wind',
+    'wind.apps.WindConfig',
 ]
 
 # ============================================================================
@@ -177,6 +182,71 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# ============================================================================
+# CELERY / REDIS (tareas asíncronas y programación)
+# ============================================================================
+
+def _as_int(value, default):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+REDIS_HOST = os.getenv("REDIS_HOST", "redis")  # nombre del servicio en Docker
+REDIS_PORT = os.getenv("REDIS_PORT", "6379")
+REDIS_DB = os.getenv("REDIS_DB", "0")
+REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "")
+
+def _build_redis_url(host, port, db, password):
+    if password:
+        return f"redis://:{password}@{host}:{port}/{db}"
+    return f"redis://{host}:{port}/{db}"
+
+
+_DEFAULT_REDIS_URL = _build_redis_url(REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_PASSWORD)
+
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", _DEFAULT_REDIS_URL)
+CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", CELERY_BROKER_URL)
+CELERY_TASK_TIME_LIMIT = _as_int(os.getenv("CELERY_TASK_TIME_LIMIT", "600"), 600)          # hard limit
+CELERY_TASK_SOFT_TIME_LIMIT = _as_int(os.getenv("CELERY_TASK_SOFT_TIME_LIMIT", "540"), 540)  # aviso previo
+CELERY_WORKER_MAX_TASKS_PER_CHILD = _as_int(os.getenv("CELERY_WORKER_MAX_TASKS_PER_CHILD", "100"), 100)
+CELERY_ENABLE_UTC = True
+CELERY_TIMEZONE = TIME_ZONE
+
+# Configurar cola por defecto para tareas específicas
+CELERY_TASK_ROUTES = {
+    'wind.tasks.sync_subscribers_task': {'queue': 'sync_subscribers'},
+}
+
+_SYNC_MINUTES = max(1, _as_int(os.getenv("CELERY_SYNC_MINUTES", "10"), 10))
+_SYNC_LIMIT = max(1, _as_int(os.getenv("CELERY_SYNC_LIMIT", "200"), 200))
+_SYNC_QUEUE = os.getenv("CELERY_SYNC_QUEUE", "sync_subscribers")
+
+# Usar timedelta para schedule más predecible (cada X minutos desde el inicio)
+# Alternativamente puedes usar crontab para ejecutar en minutos específicos
+_USE_CRONTAB = os.getenv("CELERY_USE_CRONTAB", "false").lower() == "true"
+
+if _USE_CRONTAB:
+    # Modo crontab: ejecuta en minutos múltiplos de _SYNC_MINUTES (ej: */10 = 0, 10, 20, 30, 40, 50)
+    _SCHEDULE = crontab(minute=f"*/{_SYNC_MINUTES}")
+else:
+    # Modo timedelta: ejecuta cada X minutos desde el inicio de Beat
+    _SCHEDULE = timedelta(minutes=_SYNC_MINUTES)
+
+CELERY_BEAT_SCHEDULE = {
+    "sync-subscribers": {
+        "task": "wind.tasks.sync_subscribers_task",
+        "schedule": _SCHEDULE,
+        "options": {
+            "queue": _SYNC_QUEUE,
+            "soft_time_limit": CELERY_TASK_SOFT_TIME_LIMIT,
+            "time_limit": CELERY_TASK_TIME_LIMIT,
+        },
+        "args": (_SYNC_LIMIT,),
+    },
+}
 
 # ============================================================================
 # CONFIGURACIÓN DE LOGGING
