@@ -12,6 +12,11 @@ from wind.functions.sync_products import (
     test_call_list_products,
     products_stats_view,
 )
+from wind.functions.sync_smartcards import (
+    sync_smartcards_view,
+    test_call_list_smartcards,
+    smartcards_stats_view,
+)
 
 # Importar funciones de smartcards para facilitar el acceso
 from wind.functions.getSmartcard import (
@@ -71,4 +76,7 @@ __all__ = [
     'sync_products_view',
     'test_call_list_products',
     'products_stats_view',
+    'sync_smartcards_view',
+    'test_call_list_smartcards',
+    'smartcards_stats_view',
 ]

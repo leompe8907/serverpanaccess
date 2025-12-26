@@ -15,7 +15,8 @@ from wind.exceptions import (
     PanAccessException,
     PanAccessAuthenticationError,
     PanAccessConnectionError,
-    PanAccessTimeoutError
+    PanAccessTimeoutError,
+    PanAccessAPIError
 )
 
 logger = logging.getLogger(__name__)
@@ -167,7 +168,8 @@ class PanAccessSingleton:
         """
         Asegura que haya una sesión válida (thread-safe).
         
-        Si no hay sessionId o está caducado, lo refresca automáticamente.
+        Si no hay sessionId, lo obtiene automáticamente.
+        Solo valida la sesión si hay un error específico de sesión inválida en una llamada.
         Solo un thread puede ejecutar el refresh a la vez.
         """
         with self._session_lock:
@@ -177,23 +179,11 @@ class PanAccessSingleton:
                 self.client.session_id = self._authenticate_with_retry()
                 return
             
-            # Verificar si la sesión sigue siendo válida
-            try:
-                is_valid = logged_in(self.client.session_id)
-                if not is_valid:
-                    logger.info("🔄 Sesión caducada, refrescando...")
-                    self.client.session_id = self._authenticate_with_retry()
-                else:
-                    logger.debug("✅ Sesión válida")
-            except (PanAccessConnectionError, PanAccessTimeoutError) as e:
-                # Error al verificar, intentar refrescar
-                logger.warning(f"⚠️ Error al verificar sesión: {str(e)}. Intentando refrescar...")
-                try:
-                    self.client.session_id = self._authenticate_with_retry()
-                except Exception:
-                    # Si el refresh falla, limpiar y lanzar excepción
-                    self.client.session_id = None
-                    raise
+            # NO validar la sesión aquí automáticamente
+            # Solo validar si hay un error específico de sesión inválida en una llamada real
+            # Esto evita logins innecesarios cuando la sesión es válida pero hay errores
+            # de permisos o temporales en la validación
+            logger.debug("✅ Sesión existente, confiando en validación periódica")
     
     def call(self, func_name: str, parameters: dict = None, timeout: int = 60) -> dict:
         """
@@ -248,7 +238,7 @@ class PanAccessSingleton:
         """
         Thread en background que valida periódicamente si la sesión está activa.
         
-        Si la sesión está caducada, la refresca automáticamente.
+        Solo valida si hay una sesión existente y solo la refresca si realmente está caducada.
         Este thread se ejecuta cada VALIDATION_INTERVAL segundos.
         """
         logger.info(f"🔄 Thread de validación periódica iniciado (intervalo: {self.VALIDATION_INTERVAL}s)")
@@ -260,9 +250,38 @@ class PanAccessSingleton:
                     # Si el evento está activado, salir del loop
                     break
                 
-                # Validar y refrescar si es necesario (thread-safe)
-                logger.debug("🔍 Validando sesión periódicamente...")
-                self.ensure_session()
+                # Solo validar si hay una sesión existente
+                with self._session_lock:
+                    if not self.client.session_id:
+                        logger.debug("🔍 No hay sesión para validar, saltando validación periódica")
+                        continue
+                    
+                    # Validar la sesión solo si existe
+                    try:
+                        logger.debug("🔍 Validando sesión periódicamente...")
+                        is_valid = logged_in(self.client.session_id)
+                        if not is_valid:
+                            logger.info("🔄 Sesión caducada en validación periódica, refrescando...")
+                            self.client.session_id = self._authenticate_with_retry()
+                        else:
+                            logger.debug("✅ Sesión válida en validación periódica")
+                    except (PanAccessConnectionError, PanAccessTimeoutError) as e:
+                        # Error de conexión/timeout - no refrescar, solo loguear
+                        logger.warning(f"⚠️ Error de conexión en validación periódica: {str(e)}. Manteniendo sesión actual.")
+                    except PanAccessAPIError as e:
+                        # Error de API - verificar si es por permisos o sesión inválida
+                        error_code = getattr(e, 'error_code', None)
+                        if error_code == 'no_access_to_function':
+                            # Error de permisos, no de sesión inválida - mantener sesión
+                            logger.debug("⚠️ Error de permisos en validación periódica, manteniendo sesión")
+                        else:
+                            # Otro error de API - podría ser sesión inválida, refrescar
+                            logger.warning(f"⚠️ Error de API en validación periódica: {str(e)}. Intentando refrescar...")
+                            try:
+                                self.client.session_id = self._authenticate_with_retry()
+                            except Exception:
+                                logger.error("❌ Error al refrescar sesión en validación periódica")
+                
                 logger.debug("✅ Validación periódica completada")
                 
             except Exception as e:

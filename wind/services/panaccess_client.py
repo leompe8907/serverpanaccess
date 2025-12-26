@@ -58,29 +58,19 @@ class PanAccessClient:
         """
         Asegura que haya una sesión válida.
         
-        Si no hay sessionId o si el sessionId está caducado,
-        realiza un nuevo login automáticamente.
+        Si no hay sessionId, realiza un nuevo login automáticamente.
+        NO valida la sesión antes de cada llamada para evitar logins innecesarios.
+        La validación periódica del singleton se encarga de mantener la sesión activa.
         """
         # Si no hay sessionId, autenticar
         if not self.session_id:
             self.authenticate()
             return
         
-        # Verificar si la sesión sigue siendo válida
-        try:
-            is_valid = logged_in(self.session_id)
-            if not is_valid:
-                # Sesión caducada, refrescar
-                self.authenticate()
-        except (PanAccessConnectionError, PanAccessTimeoutError, PanAccessAPIError):
-            # Si hay error al verificar, intentar refrescar la sesión
-            # (puede ser un problema temporal de red)
-            try:
-                self.authenticate()
-            except Exception:
-                # Si el refresh también falla, limpiar sessionId
-                self.session_id = None
-                raise
+        # NO validar la sesión aquí - confiar en la validación periódica del singleton
+        # Esto evita logins innecesarios cuando la sesión es válida pero hay errores
+        # temporales o de permisos en la validación
+        # La validación periódica en background se encargará de refrescar si es necesario
     
     def call(self, func_name: str, parameters: Dict[str, Any] = None, timeout: int = 60) -> Dict[str, Any]:
         """

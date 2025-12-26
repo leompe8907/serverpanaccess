@@ -7,6 +7,9 @@ from wind.functions import (
     sync_products_view,
     test_call_list_products,
     products_stats_view,
+    sync_smartcards_view,
+    test_call_list_smartcards,
+    smartcards_stats_view,
 )
 
 urlpatterns = [
@@ -18,4 +21,8 @@ urlpatterns = [
     path('sync-products/', sync_products_view, name='sync_products'),
     path('test-products/', test_call_list_products, name='test_call_list_products'),
     path('products-stats/', products_stats_view, name='products_stats'),
+    # Endpoints de smartcards
+    path('sync-smartcards/', sync_smartcards_view, name='sync_smartcards'),
+    path('test-smartcards/', test_call_list_smartcards, name='test_call_list_smartcards'),
+    path('smartcards-stats/', smartcards_stats_view, name='smartcards_stats'),
 ]

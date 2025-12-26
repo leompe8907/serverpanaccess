@@ -293,6 +293,15 @@ def compare_and_update_all_subscribers(session_id=None, limit=100):
                     local_obj.save(update_fields=changed_fields)
                     total_updated += 1
                     logger.debug(f"Código {code} actualizado. Campos: {changed_fields}")
+                    
+                    # Actualizar credenciales del suscriptor actualizado
+                    if fetch_login_info_for_subscriber and code:
+                        try:
+                            if fetch_login_info_for_subscriber(session_id, code):
+                                logger.debug(f"Credenciales actualizadas para suscriptor {code}")
+                        except Exception as e:
+                            logger.warning(f"Error actualizando credenciales para {code}: {str(e)}")
+                            
                 except Exception as e:
                     logger.error(f"Error actualizando código {code}: {str(e)}")
         offset += limit
