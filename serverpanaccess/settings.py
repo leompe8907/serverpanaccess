@@ -218,11 +218,15 @@ CELERY_TIMEZONE = TIME_ZONE
 # Configurar cola por defecto para tareas específicas
 CELERY_TASK_ROUTES = {
     'wind.tasks.sync_subscribers_task': {'queue': 'sync_subscribers'},
+    'wind.tasks.sync_smartcards_task': {'queue': 'sync_subscribers'},
 }
 
 _SYNC_MINUTES = max(1, _as_int(os.getenv("CELERY_SYNC_MINUTES", "10"), 10))
 _SYNC_LIMIT = max(1, _as_int(os.getenv("CELERY_SYNC_LIMIT", "200"), 200))
 _SYNC_QUEUE = os.getenv("CELERY_SYNC_QUEUE", "sync_subscribers")
+
+# Configuración para smartcards (puede tener intervalo diferente)
+_SMARTCARD_SYNC_MINUTES = max(1, _as_int(os.getenv("CELERY_SMARTCARD_SYNC_MINUTES", "10"), 10))
 
 # Usar timedelta para schedule más predecible (cada X minutos desde el inicio)
 # Alternativamente puedes usar crontab para ejecutar en minutos específicos
@@ -231,14 +235,26 @@ _USE_CRONTAB = os.getenv("CELERY_USE_CRONTAB", "false").lower() == "true"
 if _USE_CRONTAB:
     # Modo crontab: ejecuta en minutos múltiplos de _SYNC_MINUTES (ej: */10 = 0, 10, 20, 30, 40, 50)
     _SCHEDULE = crontab(minute=f"*/{_SYNC_MINUTES}")
+    _SMARTCARD_SCHEDULE = crontab(minute=f"*/{_SMARTCARD_SYNC_MINUTES}")
 else:
     # Modo timedelta: ejecuta cada X minutos desde el inicio de Beat
     _SCHEDULE = timedelta(minutes=_SYNC_MINUTES)
+    _SMARTCARD_SCHEDULE = timedelta(minutes=_SMARTCARD_SYNC_MINUTES)
 
 CELERY_BEAT_SCHEDULE = {
     "sync-subscribers": {
         "task": "wind.tasks.sync_subscribers_task",
         "schedule": _SCHEDULE,
+        "options": {
+            "queue": _SYNC_QUEUE,
+            "soft_time_limit": CELERY_TASK_SOFT_TIME_LIMIT,
+            "time_limit": CELERY_TASK_TIME_LIMIT,
+        },
+        "args": (_SYNC_LIMIT,),
+    },
+    "sync-smartcards": {
+        "task": "wind.tasks.sync_smartcards_task",
+        "schedule": _SMARTCARD_SCHEDULE,
         "options": {
             "queue": _SYNC_QUEUE,
             "soft_time_limit": CELERY_TASK_SOFT_TIME_LIMIT,
