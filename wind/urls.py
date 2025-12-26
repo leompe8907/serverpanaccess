@@ -10,6 +10,7 @@ from wind.functions import (
     sync_smartcards_view,
     test_call_list_smartcards,
     smartcards_stats_view,
+    create_subscriber_view,
 )
 
 urlpatterns = [
@@ -25,4 +26,6 @@ urlpatterns = [
     path('sync-smartcards/', sync_smartcards_view, name='sync_smartcards'),
     path('test-smartcards/', test_call_list_smartcards, name='test_call_list_smartcards'),
     path('smartcards-stats/', smartcards_stats_view, name='smartcards_stats'),
+    # Endpoint para crear suscriptores
+    path('create-subscriber/', create_subscriber_view, name='create_subscriber'),
 ]

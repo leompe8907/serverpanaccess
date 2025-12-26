@@ -17,6 +17,7 @@ from wind.functions.sync_smartcards import (
     test_call_list_smartcards,
     smartcards_stats_view,
 )
+from wind.functions.create_subscriber import create_subscriber_view
 
 # Importar funciones de smartcards para facilitar el acceso
 from wind.functions.getSmartcard import (
@@ -79,4 +80,5 @@ __all__ = [
     'sync_smartcards_view',
     'test_call_list_smartcards',
     'smartcards_stats_view',
+    'create_subscriber_view',
 ]

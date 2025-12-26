@@ -72,3 +72,76 @@ class SubscriberInfoSerializer(serializers.ModelSerializer):
             # Read-only fields  
             'password_hash', 'pin_hash', 'failed_login_attempts', 'locked_until'
         ]
+
+
+# Serializers para crear suscriptores
+class ContactSerializer(serializers.Serializer):
+    """Serializer para contactos de suscriptores"""
+    type = serializers.ChoiceField(
+        choices=['email', 'phone', 'fax', 'skype', 'mobile', 'custodian'],
+        required=True
+    )
+    isBusiness = serializers.BooleanField(required=True)
+    contact = serializers.CharField(required=True, max_length=255)
+
+
+class AddressSerializer(serializers.Serializer):
+    """Serializer para direcciones de suscriptores"""
+    type = serializers.ChoiceField(
+        choices=['private', 'company', 'bill', 'deliver'],
+        required=True
+    )
+    name = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=255)
+    country = serializers.CharField(required=True, max_length=2)  # Código de 2 letras ISO
+    city = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=100)
+    zip = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=20)
+    street = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=255)
+    addition = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=255)
+    addition2 = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=255)
+    addition3 = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=255)
+    zone = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=100)
+    district = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=100)
+    ownership = serializers.IntegerField(required=False, allow_null=True, min_value=0, max_value=2)
+    ownerName = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=255)
+    ownerPhone = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=100)
+
+
+class CreateSubscriberSerializer(serializers.Serializer):
+    """
+    Serializer para crear un nuevo suscriptor en PanAccess.
+    
+    El código del suscriptor se genera automáticamente si no se proporciona.
+    """
+    # Código opcional - si no se proporciona, se genera automáticamente
+    code = serializers.CharField(required=False, allow_null=True, max_length=100)
+    
+    # Campos requeridos
+    hcId = serializers.CharField(required=True, max_length=100)
+    countryCode = serializers.CharField(required=True, max_length=2)
+    
+    # Campos opcionales del suscriptor
+    supervisor = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=100)
+    lastName = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=100)
+    firstName = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=100)
+    comment = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+    technicalNotes = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+    
+    # Contactos (opcional, puede ser array vacío)
+    contacts = ContactSerializer(many=True, required=False, default=list)
+    
+    # Direcciones (opcional, puede ser array vacío)
+    addresses = AddressSerializer(many=True, required=False, default=list)
+    
+    def validate_code(self, value):
+        """Valida que el código sea único si se proporciona"""
+        if value:
+            from wind.utils.subscriber_code_generator import validate_subscriber_code_uniqueness
+            if not validate_subscriber_code_uniqueness(value):
+                raise serializers.ValidationError(f"El código '{value}' ya existe")
+        return value
+    
+    def validate_countryCode(self, value):
+        """Valida que el código de país tenga 2 letras"""
+        if value and len(value) != 2:
+            raise serializers.ValidationError("El código de país debe tener exactamente 2 letras (ej: US, DE, ES)")
+        return value.upper() if value else value
