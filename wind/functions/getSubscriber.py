@@ -6,6 +6,12 @@ from wind.serializers import ListOfSubscriberSerializer
 from wind.services import get_panaccess
 from wind.exceptions import PanAccessException
 
+# Importar función para obtener login info
+try:
+    from wind.functions.getSubscriberLoginInfo import fetch_login_info_for_subscriber
+except ImportError:
+    fetch_login_info_for_subscriber = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -118,7 +124,23 @@ def fetch_all_subscribers(session_id=None, limit=100):
         logger.info(f"Procesados {len(all_data)} suscriptores hasta ahora...")
     
     logger.info(f"Total de suscriptores descargados: {len(all_data)}")
-    return store_all_subscribers_in_chunks(all_data)
+    result = store_all_subscribers_in_chunks(all_data)
+    
+    # Obtener login info para los suscriptores descargados
+    if fetch_login_info_for_subscriber:
+        logger.info("Obteniendo login info para los suscriptores descargados...")
+        login_info_count = 0
+        for item in all_data:
+            subscriber_code = item.get('code')
+            if subscriber_code:
+                try:
+                    if fetch_login_info_for_subscriber(session_id, subscriber_code):
+                        login_info_count += 1
+                except Exception as e:
+                    logger.warning(f"Error obteniendo login info para {subscriber_code}: {str(e)}")
+        logger.info(f"Login info obtenida para {login_info_count} suscriptores")
+    
+    return result
 
 def store_all_subscribers_in_chunks(data_batch, chunk_size=100):
     """
@@ -193,7 +215,23 @@ def download_subscribers_since_last(session_id=None, limit=100):
         logger.info(f"Procesados {len(new_data)} suscriptores nuevos hasta ahora...")
     
     logger.info(f"Total de suscriptores nuevos descargados: {len(new_data)}")
-    return store_all_subscribers_in_chunks(new_data)
+    result = store_all_subscribers_in_chunks(new_data)
+    
+    # Obtener login info para los suscriptores nuevos
+    if fetch_login_info_for_subscriber:
+        logger.info("Obteniendo login info para los suscriptores nuevos...")
+        login_info_count = 0
+        for item in new_data:
+            subscriber_code = item.get('code')
+            if subscriber_code:
+                try:
+                    if fetch_login_info_for_subscriber(session_id, subscriber_code):
+                        login_info_count += 1
+                except Exception as e:
+                    logger.warning(f"Error obteniendo login info para {subscriber_code}: {str(e)}")
+        logger.info(f"Login info obtenida para {login_info_count} suscriptores nuevos")
+    
+    return result
 
 
 def compare_and_update_all_subscribers(session_id=None, limit=100):

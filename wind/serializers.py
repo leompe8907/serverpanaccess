@@ -1,6 +1,6 @@
 from django.utils import timezone
 from rest_framework import serializers
-from .models import (ListOfSubscriber, ListOfSmartcards, SubscriberLoginInfo, SubscriberInfo)
+from .models import (ListOfSubscriber, ListOfSmartcards, SubscriberLoginInfo, SubscriberInfo, ListOfProducts)
 
 class ListOfSubscriberSerializer(serializers.ModelSerializer):
     """Serializer para datos raw de suscriptores desde Panaccess"""
@@ -34,6 +34,14 @@ class SubscriberLoginInfoSerializer(serializers.ModelSerializer):
     class Meta:
         model = SubscriberLoginInfo
         fields = '__all__'
+
+class ListOfProductsSerializer(serializers.ModelSerializer):
+    """Serializer para datos raw de productos desde Panaccess"""
+    
+    class Meta:
+        model = ListOfProducts
+        fields = '__all__'
+
 
 class SubscriberInfoSerializer(serializers.ModelSerializer):
     """

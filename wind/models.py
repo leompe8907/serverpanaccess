@@ -79,7 +79,42 @@ class SubscriberLoginInfo(models.Model):
     licenses = models.JSONField(null=True, blank=True)
 
     def __str__(self):
-        return self.data
+        """Representación string de la información de login."""
+        return f"Login Info - Subscriber: {self.subscriberCode or 'N/A'}"
+
+
+class ListOfProducts(models.Model):
+    productId = models.IntegerField(primary_key=True, unique=True)
+    name = models.CharField(max_length=255, null=True, blank=True)
+    ordered = models.IntegerField(default=0)
+    activeOrders = models.IntegerField(default=0)
+    flexiblyOrdered = models.IntegerField(default=0)
+    activeFlexibleOrders = models.IntegerField(default=0)
+    deleted = models.BooleanField(default=False)
+    description = models.TextField(null=True, blank=True)
+    minRunTime = models.IntegerField(default=0)
+    minRunTimeType = models.CharField(max_length=100, null=True, blank=True)
+    allowFlexibleRuntime = models.BooleanField(default=False)
+    hasOptionalPackages = models.BooleanField(default=False)
+    packages = models.JSONField(null=True, blank=True)  # array of int
+    optionalPackages = models.JSONField(null=True, blank=True)  # array of int
+    catchupGroups = models.JSONField(null=True, blank=True)  # array of int
+    streams = models.JSONField(null=True, blank=True)  # array of int
+    vodLibraries = models.JSONField(null=True, blank=True)  # array of int
+    
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'list_of_products'
+        ordering = ['productId']
+    
+    def __str__(self):
+        """Representación string del producto."""
+        return f"{self.name or 'Sin nombre'} (ID: {self.productId})"
+
+
 
 class SubscriberInfo(models.Model):
     # Subscriber fields

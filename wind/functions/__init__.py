@@ -7,6 +7,11 @@ from wind.functions.login import login
 from wind.functions.singleton import singleton
 from wind.functions.logged_in import logged_in_view
 from wind.functions.sync_subscribers import sync_subscribers_view
+from wind.functions.sync_products import (
+    sync_products_view,
+    test_call_list_products,
+    products_stats_view,
+)
 
 # Importar funciones de smartcards para facilitar el acceso
 from wind.functions.getSmartcard import (
@@ -17,6 +22,26 @@ from wind.functions.getSmartcard import (
     CallListSmartcards,
     DataBaseEmpty as SmartcardDataBaseEmpty,
     LastSmartcard
+)
+
+# Importar funciones de login info
+from wind.functions.getSubscriberLoginInfo import (
+    sync_subscribers_login_info,
+    fetch_all_subscribers_login_info,
+    fetch_login_info_for_subscriber,
+    CallGetSubscriberLoginInfo,
+    DataBaseEmpty as LoginInfoDataBaseEmpty,
+)
+
+# Importar funciones de productos
+from wind.functions.getProducts import (
+    sync_products,
+    fetch_all_products,
+    download_products_since_last,
+    compare_and_update_all_products,
+    CallListOfProducts,
+    DataBaseEmpty as ProductsDataBaseEmpty,
+    LastProduct,
 )
 
 __all__ = [
@@ -31,4 +56,19 @@ __all__ = [
     'CallListSmartcards',
     'SmartcardDataBaseEmpty',
     'LastSmartcard',
+    'sync_subscribers_login_info',
+    'fetch_all_subscribers_login_info',
+    'fetch_login_info_for_subscriber',
+    'CallGetSubscriberLoginInfo',
+    'LoginInfoDataBaseEmpty',
+    'sync_products',
+    'fetch_all_products',
+    'download_products_since_last',
+    'compare_and_update_all_products',
+    'CallListOfProducts',
+    'ProductsDataBaseEmpty',
+    'LastProduct',
+    'sync_products_view',
+    'test_call_list_products',
+    'products_stats_view',
 ]
