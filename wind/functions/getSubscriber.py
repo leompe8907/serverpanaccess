@@ -19,25 +19,21 @@ def DataBaseEmpty():
     """
     Verifica si la tabla ListOfSubscriber está vacía.
     """
-    logger.info("Verificando si la base de datos de suscriptores está vacía...")
     return not ListOfSubscriber.objects.exists()
 
 def LastSubscriber():
     """
     Retorna el último suscriptor registrado en la base de datos según el campo 'code'.
     """
-    logger.info("Buscando el último suscriptor en la base de datos...")
     try:
         return ListOfSubscriber.objects.latest('code')
     except ListOfSubscriber.DoesNotExist:
-        logger.warning("No se encontró ningún suscriptor en la base de datos.")
         return None
 
 def store_or_update_subscribers(data_batch):
     """
     Inserta nuevos suscriptores o actualiza los existentes si hay cambios.
     """
-    logger.info("Iniciando almacenamiento/actualización de suscriptores...")
     chunk_size = 100
     total_new = 0
     total_invalid = 0
@@ -54,7 +50,6 @@ def store_or_update_subscribers(data_batch):
             for item in chunk:
                 serializer = ListOfSubscriberSerializer(data=item)
                 if not serializer.is_valid():
-                    logger.warning(f"Datos inválidos: {serializer.errors}")
                     total_invalid += 1
                     continue
 
@@ -76,11 +71,10 @@ def store_or_update_subscribers(data_batch):
 
             if new_objects:
                 ListOfSubscriber.objects.bulk_create(new_objects, ignore_conflicts=True)
-                logger.info(f"Insertados {len(new_objects)} nuevos suscriptores")
 
-    logger.info(f"Suscriptores procesados: nuevos={total_new}, inválidos={total_invalid}")
+    if total_invalid > 0:
+        logger.warning(f"Suscriptores inválidos: {total_invalid}")
     return total_new, total_invalid
-
 
 def fetch_all_subscribers(session_id=None, limit=100):
     """
@@ -90,7 +84,7 @@ def fetch_all_subscribers(session_id=None, limit=100):
         session_id: ID de sesión (opcional, se usa el singleton si no se proporciona)
         limit: Cantidad máxima de registros por página
     """
-    logger.info("Iniciando descarga completa de suscriptores desde Panaccess...")
+    logger.info("Descarga completa de suscriptores")
     offset = 0
     all_data = []
     while True:
@@ -99,14 +93,12 @@ def fetch_all_subscribers(session_id=None, limit=100):
         if not rows:
             break
         for row in rows:
-            # Validar que row tenga la estructura esperada
             if not isinstance(row.get("cell"), list) or len(row.get("cell", [])) < 12:
-                logger.warning(f"Fila con estructura inválida, se omite: {row.get('id', 'unknown')}")
                 continue
             
             cell = row["cell"]
             all_data.append({
-                "id": str(row.get("id")),  # Convertir a string para el primary key
+                "id": str(row.get("id")),
                 "code": cell[0] if len(cell) > 0 and cell[0] else None,
                 "lastName": cell[1] if len(cell) > 1 and cell[1] else None,
                 "firstName": cell[2] if len(cell) > 2 and cell[2] else None,
@@ -121,14 +113,11 @@ def fetch_all_subscribers(session_id=None, limit=100):
                 "modified": cell[11] if len(cell) > 11 and cell[11] else None,
             })
         offset += limit
-        logger.info(f"Procesados {len(all_data)} suscriptores hasta ahora...")
     
-    logger.info(f"Total de suscriptores descargados: {len(all_data)}")
+    logger.info(f"Descargados {len(all_data)} suscriptores")
     result = store_all_subscribers_in_chunks(all_data)
     
-    # Obtener login info para los suscriptores descargados
     if fetch_login_info_for_subscriber:
-        logger.info("Obteniendo login info para los suscriptores descargados...")
         login_info_count = 0
         for item in all_data:
             subscriber_code = item.get('code')
@@ -136,9 +125,10 @@ def fetch_all_subscribers(session_id=None, limit=100):
                 try:
                     if fetch_login_info_for_subscriber(session_id, subscriber_code):
                         login_info_count += 1
-                except Exception as e:
-                    logger.warning(f"Error obteniendo login info para {subscriber_code}: {str(e)}")
-        logger.info(f"Login info obtenida para {login_info_count} suscriptores")
+                except Exception:
+                    pass
+        if login_info_count > 0:
+            logger.info(f"Login info obtenida: {login_info_count} suscriptores")
     
     return result
 
@@ -147,16 +137,17 @@ def store_all_subscribers_in_chunks(data_batch, chunk_size=100):
     Almacena suscriptores en la base de datos en bloques para mejorar el rendimiento.
     """
     total = len(data_batch)
-    logger.info(f"Almacenando {total} suscriptores en chunks de {chunk_size}...")
+    if total == 0:
+        return
+    logger.info(f"Almacenando {total} suscriptores")
     for i in range(0, total, chunk_size):
         chunk = data_batch[i:i + chunk_size]
         try:
             registros = [ListOfSubscriber(**item) for item in chunk]
             ListOfSubscriber.objects.bulk_create(registros, ignore_conflicts=True)
-            logger.info(f"Chunk {i//chunk_size + 1}: insertados {len(registros)} suscriptores")
         except Exception as e:
-            logger.error(f"Error insertando chunk desde {i} hasta {i+chunk_size}: {str(e)}")
-
+            logger.error(f"Error insertando chunk {i//chunk_size + 1}: {str(e)}")
+    logger.info(f"Almacenados {total} suscriptores")
 
 def download_subscribers_since_last(session_id=None, limit=100):
     """
@@ -166,13 +157,11 @@ def download_subscribers_since_last(session_id=None, limit=100):
         session_id: ID de sesión (opcional, se usa el singleton si no se proporciona)
         limit: Cantidad máxima de registros por página
     """
-    logger.info("Iniciando descarga incremental de suscriptores desde Panaccess...")
     last = LastSubscriber()
     if not last:
-        logger.warning("No hay suscriptores registrados. Se recomienda usar descarga total.")
         return []
     highest_code = last.code
-    logger.info(f"Buscando suscriptores posteriores al código: {highest_code}")
+    logger.info(f"Descarga incremental desde código: {highest_code}")
     offset = 0
     new_data = []
     found = False
@@ -183,7 +172,6 @@ def download_subscribers_since_last(session_id=None, limit=100):
             break
         for row in rows:
             if not isinstance(row.get("cell"), list) or len(row.get("cell", [])) < 12:
-                logger.warning(f"Fila con estructura inválida, se omite: {row.get('id', 'unknown')}")
                 continue
             
             cell = row["cell"]
@@ -191,7 +179,6 @@ def download_subscribers_since_last(session_id=None, limit=100):
             
             if code == highest_code:
                 found = True
-                logger.info(f"Código {highest_code} encontrado. Fin de descarga incremental.")
                 break
             
             new_data.append({
@@ -212,14 +199,11 @@ def download_subscribers_since_last(session_id=None, limit=100):
         if found:
             break
         offset += limit
-        logger.info(f"Procesados {len(new_data)} suscriptores nuevos hasta ahora...")
     
-    logger.info(f"Total de suscriptores nuevos descargados: {len(new_data)}")
+    logger.info(f"Nuevos suscriptores descargados: {len(new_data)}")
     result = store_all_subscribers_in_chunks(new_data)
     
-    # Obtener login info para los suscriptores nuevos
     if fetch_login_info_for_subscriber:
-        logger.info("Obteniendo login info para los suscriptores nuevos...")
         login_info_count = 0
         for item in new_data:
             subscriber_code = item.get('code')
@@ -227,12 +211,12 @@ def download_subscribers_since_last(session_id=None, limit=100):
                 try:
                     if fetch_login_info_for_subscriber(session_id, subscriber_code):
                         login_info_count += 1
-                except Exception as e:
-                    logger.warning(f"Error obteniendo login info para {subscriber_code}: {str(e)}")
-        logger.info(f"Login info obtenida para {login_info_count} suscriptores nuevos")
+                except Exception:
+                    pass
+        if login_info_count > 0:
+            logger.info(f"Login info obtenida: {login_info_count} suscriptores")
     
     return result
-
 
 def compare_and_update_all_subscribers(session_id=None, limit=100):
     """
@@ -242,7 +226,7 @@ def compare_and_update_all_subscribers(session_id=None, limit=100):
         session_id: ID de sesión (opcional, se usa el singleton si no se proporciona)
         limit: Cantidad máxima de registros por página
     """
-    logger.info("Comparando suscriptores de Panaccess con la base de datos...")
+    logger.info("Actualizando suscriptores existentes")
     local_data = {
         obj.code: obj for obj in ListOfSubscriber.objects.all() if obj.code
     }
@@ -280,7 +264,6 @@ def compare_and_update_all_subscribers(session_id=None, limit=100):
             for key, val in remote.items():
                 if hasattr(local_obj, key):
                     local_val = getattr(local_obj, key)
-                    # Comparar valores, manejando None y listas
                     if isinstance(local_val, list) and isinstance(val, list):
                         if local_val != val:
                             setattr(local_obj, key, val)
@@ -292,22 +275,16 @@ def compare_and_update_all_subscribers(session_id=None, limit=100):
                 try:
                     local_obj.save(update_fields=changed_fields)
                     total_updated += 1
-                    logger.debug(f"Código {code} actualizado. Campos: {changed_fields}")
                     
-                    # Actualizar credenciales del suscriptor actualizado
                     if fetch_login_info_for_subscriber and code:
                         try:
-                            if fetch_login_info_for_subscriber(session_id, code):
-                                logger.debug(f"Credenciales actualizadas para suscriptor {code}")
-                        except Exception as e:
-                            logger.warning(f"Error actualizando credenciales para {code}: {str(e)}")
-                            
+                            fetch_login_info_for_subscriber(session_id, code)
+                        except Exception:
+                            pass
                 except Exception as e:
                     logger.error(f"Error actualizando código {code}: {str(e)}")
         offset += limit
-        logger.info(f"Procesados {offset} registros, {total_updated} actualizados hasta ahora...")
-    logger.info(f"Actualización completa. Total modificados: {total_updated}")
-
+    logger.info(f"Actualizados {total_updated} suscriptores")
 
 def sync_subscribers(session_id=None, limit=100):
     """
@@ -322,35 +299,21 @@ def sync_subscribers(session_id=None, limit=100):
     Returns:
         Resultado de la sincronización
     """
-    logger.info("Iniciando sincronización de suscriptores")
+    logger.info("Sincronizando suscriptores")
 
     try:
         if DataBaseEmpty():
-            logger.info("Base vacía: descarga completa")
             return fetch_all_subscribers(session_id, limit)
         else:
-            last = LastSubscriber()
-            highest_code = last.code if last else None
-            logger.info(f"Último código: {highest_code}")
-            
-            logger.info("Base existente: descarga incremental + actualización")
-            # 1. Nuevos registros
-            logger.info("Inicio de Descarga de suscriptores nuevos desde el último registrado")
             new_result = download_subscribers_since_last(session_id, limit)
-            logger.info(f"Fin de Descarga de suscriptores nuevos completada.")
-            
-            # 2. Actualizar existentes
-            logger.info("Inicio de Actualización de suscriptores existentes")
             compare_and_update_all_subscribers(session_id, limit)
-            logger.info("Fin de Actualización de suscriptores existentes completada.")
-
             return new_result
 
     except PanAccessException as e:
-        logger.error(f"Error de PanAccess durante sincronización: {str(e)}")
+        logger.error(f"Error PanAccess: {str(e)}")
         raise
     except (ConnectionError, ValueError) as e:
-        logger.error(f"Error específico durante sincronización: {str(e)}")
+        logger.error(f"Error: {str(e)}")
         raise
     except Exception as e:
         logger.error(f"Error inesperado: {str(e)}", exc_info=True)
@@ -368,32 +331,25 @@ def CallListSubscribers(session_id=None, offset=0, limit=100):
     Returns:
         Diccionario con la respuesta de PanAccess
     """
-    logger.info(f"Llamando API Panaccess: offset={offset}, limit={limit}")
-    
     try:
-        # Usar el singleton de PanAccess
         panaccess = get_panaccess()
-        
-        # Preparar parámetros
         parameters = {
             'offset': offset,
             'limit': limit,
             'orderDir': 'ASC',
             'orderBy': 'code'
         }
-        
-        # Hacer la llamada usando el singleton
         response = panaccess.call('getListOfSubscribers', parameters)
 
         if response.get('success'):
             return response.get('answer', {})
         else:
             error_message = response.get('errorMessage', 'Error desconocido al obtener suscriptores')
-            logger.error(f"Error en respuesta de PanAccess: {error_message}")
+            logger.error(f"Error PanAccess: {error_message}")
             raise PanAccessException(error_message)
 
     except PanAccessException:
         raise
     except Exception as e:
-        logger.error(f"Fallo en la llamada a getListOfSubscribers: {str(e)}", exc_info=True)
+        logger.error(f"Error llamada API: {str(e)}", exc_info=True)
         raise

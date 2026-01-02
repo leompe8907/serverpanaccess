@@ -82,7 +82,6 @@ class SubscriberLoginInfo(models.Model):
         """Representación string de la información de login."""
         return f"Login Info - Subscriber: {self.subscriberCode or 'N/A'}"
 
-
 class ListOfProducts(models.Model):
     productId = models.IntegerField(primary_key=True, unique=True)
     name = models.CharField(max_length=255, null=True, blank=True)
@@ -113,8 +112,6 @@ class ListOfProducts(models.Model):
     def __str__(self):
         """Representación string del producto."""
         return f"{self.name or 'Sin nombre'} (ID: {self.productId})"
-
-
 
 class SubscriberInfo(models.Model):
     # Subscriber fields

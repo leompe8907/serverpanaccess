@@ -14,9 +14,7 @@ def DataBaseEmpty():
     """
     Verifica si la tabla ListOfProducts está vacía.
     """
-    logger.info("Verificando si la base de datos de productos está vacía...")
     return not ListOfProducts.objects.exists()
-
 
 def LastProduct():
     """
@@ -24,23 +22,22 @@ def LastProduct():
     """
     return ListOfProducts.objects.order_by('-productId').first()
 
-
 def store_all_products_in_chunks(data_batch, chunk_size=100):
     """
     Almacena productos en la base de datos en bloques para mejorar el rendimiento.
     """
     total = len(data_batch)
-    logger.info(f"Almacenando {total} productos en chunks de {chunk_size}...")
-    
+    if total == 0:
+        return
+    logger.info(f"Almacenando {total} productos")
     for i in range(0, total, chunk_size):
         chunk = data_batch[i:i + chunk_size]
         try:
             registros = [ListOfProducts(**item) for item in chunk]
             ListOfProducts.objects.bulk_create(registros, ignore_conflicts=True)
-            logger.info(f"Chunk {i//chunk_size + 1}: insertados {len(registros)} productos")
         except Exception as e:
-            logger.error(f"Error insertando chunk desde {i} hasta {i+chunk_size}: {str(e)}")
-
+            logger.error(f"Error insertando chunk {i//chunk_size + 1}: {str(e)}")
+    logger.info(f"Almacenados {total} productos")
 
 def fetch_all_products(session_id=None, limit=100):
     """
@@ -50,7 +47,7 @@ def fetch_all_products(session_id=None, limit=100):
         session_id: ID de sesión (opcional, se usa el singleton si no se proporciona)
         limit: Cantidad máxima de registros por página
     """
-    logger.info("Iniciando descarga completa de productos desde Panaccess...")
+    logger.info("Descarga completa de productos")
     offset = 0
     all_data = []
     
@@ -83,16 +80,12 @@ def fetch_all_products(session_id=None, limit=100):
             })
         
         offset += limit
-        logger.info(f"Procesados {len(all_data)} productos hasta ahora...")
-        
-        # Verificar si hay más productos
         total_count = result.get("count", 0)
         if len(all_data) >= total_count:
             break
     
-    logger.info(f"Total de productos descargados: {len(all_data)}")
+    logger.info(f"Descargados {len(all_data)} productos")
     return store_all_products_in_chunks(all_data)
-
 
 def download_products_since_last(session_id=None, limit=100):
     """
@@ -102,14 +95,12 @@ def download_products_since_last(session_id=None, limit=100):
         session_id: ID de sesión (opcional, se usa el singleton si no se proporciona)
         limit: Cantidad máxima de registros por página
     """
-    logger.info("Iniciando descarga incremental de productos desde Panaccess...")
     last = LastProduct()
     if not last:
-        logger.warning("No hay productos registrados. Se recomienda usar descarga total.")
         return []
     
     highest_product_id = last.productId
-    logger.info(f"Buscando productos posteriores al ID: {highest_product_id}")
+    logger.info(f"Descarga incremental desde ID: {highest_product_id}")
     offset = 0
     new_data = []
     found = False
@@ -123,10 +114,8 @@ def download_products_since_last(session_id=None, limit=100):
         
         for entry in product_entries:
             product_id = entry.get("productId")
-            
             if product_id == highest_product_id:
                 found = True
-                logger.info(f"Producto ID {highest_product_id} encontrado. Fin de descarga incremental.")
                 break
             
             new_data.append({
@@ -151,13 +140,10 @@ def download_products_since_last(session_id=None, limit=100):
         
         if found:
             break
-        
         offset += limit
-        logger.info(f"Procesados {len(new_data)} productos nuevos hasta ahora...")
     
-    logger.info(f"Total de productos nuevos descargados: {len(new_data)}")
+    logger.info(f"Nuevos productos descargados: {len(new_data)}")
     return store_all_products_in_chunks(new_data)
-
 
 def compare_and_update_all_products(session_id=None, limit=100):
     """
@@ -167,7 +153,7 @@ def compare_and_update_all_products(session_id=None, limit=100):
         session_id: ID de sesión (opcional, se usa el singleton si no se proporciona)
         limit: Cantidad máxima de registros por página
     """
-    logger.info("Comparando productos de Panaccess con la base de datos...")
+    logger.info("Actualizando productos existentes")
     local_data = {
         obj.productId: obj for obj in ListOfProducts.objects.all()
     }
@@ -211,7 +197,6 @@ def compare_and_update_all_products(session_id=None, limit=100):
             for key, val in remote.items():
                 if hasattr(local_obj, key):
                     local_val = getattr(local_obj, key)
-                    # Comparar valores, manejando None y listas
                     if isinstance(local_val, list) and isinstance(val, list):
                         if local_val != val:
                             setattr(local_obj, key, val)
@@ -224,15 +209,12 @@ def compare_and_update_all_products(session_id=None, limit=100):
                 try:
                     local_obj.save(update_fields=changed_fields)
                     total_updated += 1
-                    logger.debug(f"Producto ID {product_id} actualizado. Campos: {changed_fields}")
                 except Exception as e:
-                    logger.error(f"Error actualizando producto ID {product_id}: {str(e)}")
+                    logger.error(f"Error actualizando producto {product_id}: {str(e)}")
         
         offset += limit
-        logger.info(f"Procesados {offset} registros, {total_updated} actualizados hasta ahora...")
     
-    logger.info(f"Actualización completa. Total modificados: {total_updated}")
-
+    logger.info(f"Actualizados {total_updated} productos")
 
 def sync_products(session_id=None, limit=100):
     """
@@ -247,40 +229,25 @@ def sync_products(session_id=None, limit=100):
     Returns:
         Resultado de la sincronización
     """
-    logger.info("Iniciando sincronización de productos")
+    logger.info("Sincronizando productos")
 
     try:
         if DataBaseEmpty():
-            logger.info("Base vacía: descarga completa")
             return fetch_all_products(session_id, limit)
         else:
-            last = LastProduct()
-            highest_product_id = last.productId if last else None
-            logger.info(f"Último producto ID: {highest_product_id}")
-            
-            logger.info("Base existente: descarga incremental + actualización")
-            # 1. Nuevos registros
-            logger.info("Inicio de Descarga de productos nuevos desde el último registrado")
             new_result = download_products_since_last(session_id, limit)
-            logger.info(f"Fin de Descarga de productos nuevos completada.")
-            
-            # 2. Actualizar existentes
-            logger.info("Inicio de Actualización de productos existentes")
             compare_and_update_all_products(session_id, limit)
-            logger.info("Fin de Actualización de productos existentes completada.")
-
             return new_result
 
     except PanAccessException as e:
-        logger.error(f"Error de PanAccess durante sincronización: {str(e)}")
+        logger.error(f"Error PanAccess: {str(e)}")
         raise
     except (ConnectionError, ValueError) as e:
-        logger.error(f"Error específico durante sincronización: {str(e)}")
+        logger.error(f"Error: {str(e)}")
         raise
     except Exception as e:
         logger.error(f"Error inesperado: {str(e)}", exc_info=True)
         raise
-
 
 def CallListOfProducts(session_id=None, offset=0, limit=100, orderBy='productId', orderDir='ASC'):
     """
@@ -299,37 +266,29 @@ def CallListOfProducts(session_id=None, offset=0, limit=100, orderBy='productId'
     Returns:
         Diccionario con la respuesta de PanAccess
     """
-    logger.info(f"Llamando API Panaccess getListOfProducts: offset={offset}, limit={limit}, orderBy={orderBy}, orderDir={orderDir}")
-    
     try:
-        # Usar el singleton de PanAccess
         panaccess = get_panaccess()
         
-        # Validar limit (máximo 1000)
         if limit > 1000:
-            logger.warning(f"Limit {limit} excede el máximo de 1000, usando 1000")
             limit = 1000
         
-        # Preparar parámetros
         parameters = {
             'offset': offset,
             'limit': limit,
             'orderBy': orderBy,
             'orderDir': orderDir
         }
-        
-        # Hacer la llamada usando el singleton
         response = panaccess.call('getListOfProducts', parameters)
 
         if response.get('success'):
             return response.get('answer', {})
         else:
             error_message = response.get('errorMessage', 'Error desconocido al obtener productos')
-            logger.error(f"Error en respuesta de PanAccess: {error_message}")
+            logger.error(f"Error PanAccess: {error_message}")
             raise PanAccessException(error_message)
 
     except PanAccessException:
         raise
     except Exception as e:
-        logger.error(f"Fallo en la llamada a getListOfProducts: {str(e)}", exc_info=True)
+        logger.error(f"Error llamada API: {str(e)}", exc_info=True)
         raise

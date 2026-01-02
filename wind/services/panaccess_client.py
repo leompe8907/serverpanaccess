@@ -47,6 +47,57 @@ class PanAccessClient:
         self.base_url = base_url or PanaccessConfig.PANACCESS
         self.session_id: Optional[str] = None
     
+    def _summarize_answer(self, answer: Any) -> str:
+        """
+        Genera un resumen del campo 'answer' para logging.
+        
+        Args:
+            answer: El valor del campo 'answer' de la respuesta
+            
+        Returns:
+            String con resumen del answer
+        """
+        if answer is None:
+            return "answer: None"
+        
+        answer_type = type(answer).__name__
+        
+        if isinstance(answer, dict):
+            summary_parts = []
+            
+            # Buscar campos comunes con listas grandes
+            for key in ['rows', 'smartcardEntries', 'productEntries']:
+                if key in answer:
+                    count = len(answer[key]) if isinstance(answer[key], list) else 0
+                    summary_parts.append(f"{key}: {count} items")
+            
+            # Mostrar otras claves importantes
+            if 'records' in answer:
+                summary_parts.append(f"records: {answer['records']}")
+            
+            if 'count' in answer:
+                summary_parts.append(f"count: {answer['count']}")
+            
+            # Si no hay summary, mostrar tipo y cantidad de claves
+            if not summary_parts:
+                keys = list(answer.keys())
+                summary_parts.append(f"{len(keys)} keys")
+            
+            return f"dict({', '.join(summary_parts)})"
+        
+        elif isinstance(answer, list):
+            count = len(answer)
+            return f"list({count} items)"
+        
+        elif isinstance(answer, str):
+            # Truncar strings largos
+            if len(answer) > 50:
+                return f"str({answer[:47]}...)"
+            return f"str({answer})"
+        
+        else:
+            return f"{answer_type}({str(answer)[:50]})"
+    
     def authenticate(self) -> str:
         """
         Realiza la autenticación con PanAccess y guarda el sessionId.
@@ -124,10 +175,7 @@ class PanAccessClient:
         param_string = urlencode(parameters)
         
         # Log de la petición
-        logger.info(f"📞 [call] Llamando función '{func_name}' - URL: {url}")
-        logger.info(f"📞 [call] Parámetros: {log_parameters}")
-        logger.debug(f"📞 [call] Headers: {headers}")
-        logger.debug(f"📞 [call] Timeout: {timeout}s")
+        logger.info(f"Llamando '{func_name}' - Parámetros: {log_parameters}")
         
         # Reintentos con backoff exponencial para errores de conexión/timeout
         attempt = 0
@@ -143,36 +191,29 @@ class PanAccessClient:
                     timeout=timeout
                 )
                 
-                # Log del status code
-                logger.info(f"📡 [call] Respuesta recibida para '{func_name}' - Status Code: {response.status_code}")
                 
                 response.raise_for_status()
                 
                 # Parsear respuesta JSON
                 try:
                     json_response = response.json()
-                    logger.info(f"📦 [call] Respuesta JSON completa para '{func_name}': {json_response}")
                 except ValueError as e:
-                    logger.error(f"❌ [call] Error al parsear JSON para '{func_name}': {str(e)}")
-                    logger.error(f"❌ [call] Respuesta raw: {response.text}")
+                    logger.error(f"Error parseando JSON para '{func_name}': {str(e)}")
                     raise PanAccessAPIError(
-                        f"Respuesta inválida del servidor PanAccess: {response.text}",
+                        f"Respuesta inválida del servidor PanAccess",
                         status_code=response.status_code
                     )
                 
                 # Verificar si hay error en la respuesta
                 success = json_response.get("success")
-                logger.info(f"✅ [call] Campo 'success' para '{func_name}': {success}")
                 
                 if not success:
                     error_message = json_response.get("errorMessage", "Error desconocido")
-                    answer = json_response.get("answer")
-                    logger.error(f"❌ [call] Llamada a '{func_name}' falló - Error: {error_message}")
-                    logger.error(f"❌ [call] Campo 'answer' para '{func_name}': {answer}")
+                    logger.error(f"Llamada '{func_name}' falló: {error_message}")
                     
                     # Si el error es de sesión, limpiar sessionId
                     if "session" in error_message.lower() or "logged" in error_message.lower():
-                        logger.warning(f"⚠️ [call] Error de sesión detectado para '{func_name}', limpiando sessionId")
+                        logger.warning(f"Error de sesión detectado para '{func_name}', limpiando sessionId")
                         self.session_id = None
                         raise PanAccessSessionError(
                             f"Error de sesión: {error_message}"
@@ -183,68 +224,55 @@ class PanAccessClient:
                         status_code=response.status_code
                     )
                 
-                # Log del resultado exitoso
+                # Log del resultado exitoso (resumido)
                 answer = json_response.get("answer")
-                logger.info(f"✅ [call] Llamada a '{func_name}' exitosa")
-                logger.info(f"📋 [call] Campo 'answer' para '{func_name}': {answer} (tipo: {type(answer).__name__})")
+                answer_summary = self._summarize_answer(answer)
+                logger.info(f"Llamada '{func_name}' exitosa - {answer_summary}")
                 
                 return json_response
                 
             except requests.exceptions.Timeout as e:
                 attempt += 1
                 last_exception = e
-                logger.warning(
-                    f"⏱️ [call] Timeout al llamar a '{func_name}' (intento {attempt}/{self.MAX_RETRY_ATTEMPTS}) - "
-                    f"El servidor no respondió en {timeout} segundos"
-                )
+                logger.warning(f"Timeout '{func_name}' (intento {attempt}/{self.MAX_RETRY_ATTEMPTS})")
                 
-                # Si es el último intento, lanzar excepción
                 if attempt >= self.MAX_RETRY_ATTEMPTS:
-                    logger.error(f"❌ [call] Timeout después de {self.MAX_RETRY_ATTEMPTS} intentos")
+                    logger.error(f"Timeout después de {self.MAX_RETRY_ATTEMPTS} intentos")
                     raise PanAccessTimeoutError(
                         f"Timeout al llamar a {func_name}. "
                         f"El servidor no respondió en {timeout} segundos después de {self.MAX_RETRY_ATTEMPTS} intentos."
                     )
                 
-                # Calcular delay con backoff exponencial
                 delay = min(delay * 2, self.MAX_RETRY_DELAY)
-                logger.info(f"🔄 [call] Reintentando en {delay} segundos...")
+                logger.info(f"Reintentando en {delay}s...")
                 time.sleep(delay)
                 
             except requests.exceptions.ConnectionError as e:
                 attempt += 1
                 last_exception = e
-                logger.warning(
-                    f"🔌 [call] Error de conexión al llamar a '{func_name}' (intento {attempt}/{self.MAX_RETRY_ATTEMPTS}): {str(e)}"
-                )
+                logger.warning(f"Error conexión '{func_name}' (intento {attempt}/{self.MAX_RETRY_ATTEMPTS})")
                 
-                # Si es el último intento, lanzar excepción
                 if attempt >= self.MAX_RETRY_ATTEMPTS:
-                    logger.error(f"❌ [call] Error de conexión después de {self.MAX_RETRY_ATTEMPTS} intentos")
+                    logger.error(f"Error conexión después de {self.MAX_RETRY_ATTEMPTS} intentos")
                     raise PanAccessConnectionError(
                         f"Error de conexión con PanAccess después de {self.MAX_RETRY_ATTEMPTS} intentos: {str(e)}"
                     )
                 
-                # Calcular delay con backoff exponencial
                 delay = min(delay * 2, self.MAX_RETRY_DELAY)
-                logger.info(f"🔄 [call] Reintentando en {delay} segundos...")
+                logger.info(f"Reintentando en {delay}s...")
                 time.sleep(delay)
                 
             except requests.exceptions.HTTPError as e:
                 status_code = response.status_code if 'response' in locals() else None
-                logger.error(f"❌ [call] Error HTTP al llamar a '{func_name}': {str(e)} (Status: {status_code})")
-                if 'response' in locals():
-                    logger.error(f"❌ [call] Respuesta completa: {response.text}")
+                logger.error(f"Error HTTP '{func_name}': {str(e)} (Status: {status_code})")
                 raise PanAccessAPIError(
                     f"Error HTTP al llamar a {func_name}: {str(e)}",
                     status_code=status_code
                 )
             except (PanAccessSessionError, PanAccessAPIError):
-                # No reintentar para errores de sesión o API - lanzar inmediatamente
                 raise
             except Exception as e:
-                # Para otros errores, no reintentar (pueden ser errores de lógica)
-                logger.error(f"💥 [call] Error inesperado al llamar a '{func_name}': {str(e)}", exc_info=True)
+                logger.error(f"Error inesperado '{func_name}': {str(e)}", exc_info=True)
                 raise PanAccessAPIError(
                     f"Error inesperado al llamar a {func_name}: {str(e)}"
                 )
