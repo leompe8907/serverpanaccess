@@ -52,7 +52,7 @@ def fetch_all_products(session_id=None, limit=100):
     all_data = []
     
     while True:
-        result = CallListOfProducts(session_id, offset, limit, orderBy='productId', orderDir='ASC')
+        result = CallListOfProducts(session_id, offset, limit)
         product_entries = result.get("productEntries", [])
         
         if not product_entries:
@@ -106,7 +106,7 @@ def download_products_since_last(session_id=None, limit=100):
     found = False
     
     while True:
-        result = CallListOfProducts(session_id, offset, limit, orderBy='productId', orderDir='ASC')
+        result = CallListOfProducts(session_id, offset, limit)
         product_entries = result.get("productEntries", [])
         
         if not product_entries:
@@ -161,7 +161,7 @@ def compare_and_update_all_products(session_id=None, limit=100):
     total_updated = 0
     
     while True:
-        response = CallListOfProducts(session_id, offset, limit, orderBy='productId', orderDir='ASC')
+        response = CallListOfProducts(session_id, offset, limit)
         product_entries = response.get("productEntries", [])
         
         if not product_entries:
@@ -249,7 +249,7 @@ def sync_products(session_id=None, limit=100):
         logger.error(f"Error inesperado: {str(e)}", exc_info=True)
         raise
 
-def CallListOfProducts(session_id=None, offset=0, limit=100, orderBy='productId', orderDir='ASC'):
+def CallListOfProducts(session_id=None, offset=0, limit=100):
     """
     Llama a la API de Panaccess para obtener la lista de productos.
     
@@ -275,8 +275,8 @@ def CallListOfProducts(session_id=None, offset=0, limit=100, orderBy='productId'
         parameters = {
             'offset': offset,
             'limit': limit,
-            'orderBy': orderBy,
-            'orderDir': orderDir
+            'orderBy': 'productId',
+            'orderDir': 'DESC'
         }
         response = panaccess.call('getListOfProducts', parameters)
 

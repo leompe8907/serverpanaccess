@@ -228,7 +228,7 @@ def CallListSmartcards(session_id=None, offset=0, limit=100):
         parameters = {
             'offset': offset,
             'limit': limit,
-            'orderDir': 'ASC',
+            'orderDir': 'DESC',
             'orderBy': 'sn'
         }
         response = panaccess.call('getListOfSmartcards', parameters)

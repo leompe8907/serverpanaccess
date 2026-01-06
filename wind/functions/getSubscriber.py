@@ -336,7 +336,7 @@ def CallListSubscribers(session_id=None, offset=0, limit=100):
         parameters = {
             'offset': offset,
             'limit': limit,
-            'orderDir': 'ASC',
+            'orderDir': 'DESC',
             'orderBy': 'code'
         }
         response = panaccess.call('getListOfSubscribers', parameters)
