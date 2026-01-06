@@ -15,6 +15,11 @@ from wind.services import get_panaccess
 from wind.exceptions import PanAccessException
 from wind.utils.subscriber_code_generator import generate_unique_subscriber_code
 
+from appConfig import PanaccessConfig
+
+PanaccessConfig.validate()
+hcId = PanaccessConfig.HCID
+
 logger = logging.getLogger(__name__)
 
 
@@ -29,10 +34,14 @@ def create_subscriber_view(request):
     
     Body (JSON):
     {
-        "hcId": "HC123",        // Requerido
-        "lastName": "Pérez",    // Requerido
-        "firstName": "Juan",     // Requerido
-        "comment": "Comentario"  // Opcional
+        "lastName": "Pérez",       // Requerido
+        "firstName": "Juan",       // Requerido
+        "hcId": "HC123",           // Opcional
+        "comment": "Comentario",   // Opcional
+        "countryCode": "AR",       // Opcional (default: "AR")
+        "regionId": 588,           // Opcional
+        "technicalNotes": "...",   // Opcional
+        "caf": "..."               // Opcional
     }
     """
     serializer = CreateSubscriberSerializer(data=request.data)
@@ -55,25 +64,35 @@ def create_subscriber_view(request):
         
         # Crear el suscriptor
         logger.info(f"Creando suscriptor: {subscriber_code}")
-        # PanAccess requiere el parámetro 'subscriber' como objeto
-        subscriber_obj = {
-            'code': subscriber_code,
-            'hcId': data['hcId'],
-            'supervisor': 'AUTOMATICO',  # Fijo
-            'lastName': data['lastName'],
-            'firstName': data['firstName'],
-            'countryCode': 'US',  # Valor por defecto
+        # PanAccess requiere parámetros anidados con notación de corchetes
+        # Formato esperado: subscriber[code], subscriber[hcId], subscriber[supervisor], etc.
+        subscriber_params = {
+            'subscriber[code]': subscriber_code,
+            'subscriber[hcId]': hcId,  # Siempre enviar hcId, vacío si no se proporciona
+            'subscriber[supervisor]': 'AUTOMATICO',  # Fijo
+            'subscriber[lastName]': data['lastName'],
+            'subscriber[firstName]': data['firstName'],
+            'subscriber[countryCode]': request.data.get('countryCode', 'AR'),  # Usar el que viene o 'AR' por defecto
         }
+        
+        # Agregar regionId si está presente en el request
+        if request.data.get('regionId'):
+            subscriber_params['subscriber[regionId]'] = request.data.get('regionId')
         
         # Agregar comment solo si tiene valor
         if data.get('comment'):
-            subscriber_obj['comment'] = data.get('comment')
+            subscriber_params['subscriber[comment]'] = data.get('comment')
         
-        subscriber_params = {
-            'subscriber': subscriber_obj
-        }
+        # Agregar otros campos opcionales si vienen en el request
+        optional_fields = ['technicalNotes', 'caf']
+        for field in optional_fields:
+            if request.data.get(field):
+                subscriber_params[f'subscriber[{field}]'] = request.data.get(field)
         
-        response = panaccess.call('addSubscriber', subscriber_obj)
+        # Log de los parámetros que se enviarán (para debugging)
+        logger.info(f"Parámetros a enviar a PanAccess: {subscriber_params}")
+        
+        response = panaccess.call('addSubscriber', subscriber_params)
         
         if not response.get('success'):
             error_message = response.get('errorMessage', 'Error desconocido al crear suscriptor')
@@ -94,10 +113,10 @@ def create_subscriber_view(request):
             'subscriber_code': subscriber_code,
             'data': {
                 'code': subscriber_code,
-                'hcId': data['hcId'],
                 'supervisor': 'AUTOMATICO',
                 'lastName': data['lastName'],
                 'firstName': data['firstName'],
+                'hcId': data.get('hcId'),
                 'comment': data.get('comment')
             }
         }, status=status.HTTP_201_CREATED)

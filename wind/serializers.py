@@ -114,9 +114,9 @@ class CreateSubscriberSerializer(serializers.Serializer):
     El supervisor se fija automáticamente a "AUTOMATICO".
     """
     # Campos requeridos
-    hcId = serializers.CharField(required=True, max_length=100)
     lastName = serializers.CharField(required=True, max_length=100)
     firstName = serializers.CharField(required=True, max_length=100)
     
     # Campos opcionales
+    hcId = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=100)
     comment = serializers.CharField(required=False, allow_null=True, allow_blank=True)

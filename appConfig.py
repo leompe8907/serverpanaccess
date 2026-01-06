@@ -16,6 +16,7 @@ class PanaccessConfig:
     PASSWORD = os.getenv("password")
     API_TOKEN = os.getenv("api_token")
     SALT = os.getenv("salt")
+    HCID = os.getenv("hcId")
 
     @classmethod
     def validate(cls):
@@ -30,7 +31,8 @@ class PanaccessConfig:
             missing.append("api_token")
         if not cls.SALT:
             missing.append("salt")
-
+        if not cls.HCID:
+            missing.append("hcId")
         if missing:
             raise EnvironmentError(f"❌ Faltan variables de entorno: {', '.join(missing)}")
 
