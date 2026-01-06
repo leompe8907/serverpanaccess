@@ -110,38 +110,13 @@ class CreateSubscriberSerializer(serializers.Serializer):
     """
     Serializer para crear un nuevo suscriptor en PanAccess.
     
-    El código del suscriptor se genera automáticamente si no se proporciona.
+    El código del suscriptor se genera automáticamente con formato AUTO + número.
+    El supervisor se fija automáticamente a "AUTOMATICO".
     """
-    # Código opcional - si no se proporciona, se genera automáticamente
-    code = serializers.CharField(required=False, allow_null=True, max_length=100)
-    
     # Campos requeridos
     hcId = serializers.CharField(required=True, max_length=100)
-    countryCode = serializers.CharField(required=True, max_length=2)
+    lastName = serializers.CharField(required=True, max_length=100)
+    firstName = serializers.CharField(required=True, max_length=100)
     
-    # Campos opcionales del suscriptor
-    supervisor = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=100)
-    lastName = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=100)
-    firstName = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=100)
+    # Campos opcionales
     comment = serializers.CharField(required=False, allow_null=True, allow_blank=True)
-    technicalNotes = serializers.CharField(required=False, allow_null=True, allow_blank=True)
-    
-    # Contactos (opcional, puede ser array vacío)
-    contacts = ContactSerializer(many=True, required=False, default=list)
-    
-    # Direcciones (opcional, puede ser array vacío)
-    addresses = AddressSerializer(many=True, required=False, default=list)
-    
-    def validate_code(self, value):
-        """Valida que el código sea único si se proporciona"""
-        if value:
-            from wind.utils.subscriber_code_generator import validate_subscriber_code_uniqueness
-            if not validate_subscriber_code_uniqueness(value):
-                raise serializers.ValidationError(f"El código '{value}' ya existe")
-        return value
-    
-    def validate_countryCode(self, value):
-        """Valida que el código de país tenga 2 letras"""
-        if value and len(value) != 2:
-            raise serializers.ValidationError("El código de país debe tener exactamente 2 letras (ej: US, DE, ES)")
-        return value.upper() if value else value

@@ -1,10 +1,7 @@
 """
 Utilidades para generar códigos únicos de suscriptores.
 """
-import random
-import string
 import logging
-from datetime import datetime
 from wind.models import ListOfSubscriber
 from wind.services import get_panaccess
 from wind.exceptions import PanAccessException
@@ -12,14 +9,14 @@ from wind.exceptions import PanAccessException
 logger = logging.getLogger(__name__)
 
 
-def generate_unique_subscriber_code(prefix='SUB', max_attempts=10):
+def generate_unique_subscriber_code(prefix='AUTO', max_attempts=10):
     """
-    Genera un código único de suscriptor.
+    Genera un código único de suscriptor con formato AUTO + número secuencial.
     
-    Formato: PREFIX + TIMESTAMP + RANDOM (ej: SUB20251226123456789ABC)
+    Formato: AUTO + NÚMERO (ej: AUTO1, AUTO2, AUTO100)
     
     Args:
-        prefix: Prefijo para el código (default: 'SUB')
+        prefix: Prefijo para el código (default: 'AUTO')
         max_attempts: Número máximo de intentos para generar un código único
     
     Returns:
@@ -28,15 +25,26 @@ def generate_unique_subscriber_code(prefix='SUB', max_attempts=10):
     Raises:
         Exception: Si no se puede generar un código único después de max_attempts
     """
+    # Obtener el último número usado
+    last_code = ListOfSubscriber.objects.filter(
+        code__startswith=prefix
+    ).order_by('-code').first()
+    
+    if last_code:
+        # Extraer el número del último código
+        try:
+            last_number = int(last_code.code.replace(prefix, ''))
+            next_number = last_number + 1
+        except (ValueError, AttributeError):
+            # Si no se puede extraer el número, empezar desde 1
+            next_number = 1
+    else:
+        # Si no hay códigos previos, empezar desde 1
+        next_number = 1
+    
+    # Intentar generar un código único
     for attempt in range(max_attempts):
-        # Generar timestamp (año + mes + día + hora + minuto + segundo)
-        timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
-        
-        # Generar 3 caracteres aleatorios (letras mayúsculas y números)
-        random_suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=3))
-        
-        # Combinar: PREFIX + TIMESTAMP + RANDOM
-        code = f"{prefix}{timestamp}{random_suffix}"
+        code = f"{prefix}{next_number}"
         
         # Verificar que no exista en la base de datos local
         if not ListOfSubscriber.objects.filter(code=code).exists():
@@ -45,9 +53,10 @@ def generate_unique_subscriber_code(prefix='SUB', max_attempts=10):
                 logger.info(f"Código único generado: {code}")
                 return code
             else:
-                logger.warning(f"Código {code} existe en PanAccess, intentando otro...")
-        else:
-            logger.warning(f"Código {code} existe en BD local, intentando otro...")
+                logger.warning(f"Código {code} existe en PanAccess, intentando siguiente...")
+        
+        # Si existe, intentar con el siguiente número
+        next_number += 1
     
     # Si llegamos aquí, no se pudo generar un código único
     raise Exception(f"No se pudo generar un código único después de {max_attempts} intentos")
@@ -71,7 +80,7 @@ def _code_exists_in_panaccess(code):
         try:
             # Nota: Esta función puede no existir en todas las versiones de PanAccess
             # Si no existe, simplemente retornamos False (asumimos que no existe)
-            response = panaccess.call('getSubscriber', {'subscriberCode': code})
+            response = panaccess.call('getSubscriber', {'code': code})
             
             if response.get('success'):
                 # Si la respuesta es exitosa, el suscriptor existe

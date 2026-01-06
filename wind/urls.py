@@ -29,15 +29,11 @@ urlpatterns = [
     # Sincronización: valida automáticamente la BD y descarga según corresponda
     # Parámetros: limit (opcional, default: 100, máximo: 1000)
     path('sync-products/', sync_products_view, name='sync_products'),
-    path('test-products/', test_call_list_products, name='test_call_list_products'),
-    path('products-stats/', products_stats_view, name='products_stats'),
     
     # Endpoints de smartcards
     # Sincronización: valida automáticamente la BD y descarga según corresponda
     # Parámetros: limit (opcional, default: 100, máximo: 1000)
     path('sync-smartcards/', sync_smartcards_view, name='sync_smartcards'),
-    path('test-smartcards/', test_call_list_smartcards, name='test_call_list_smartcards'),
-    path('smartcards-stats/', smartcards_stats_view, name='smartcards_stats'),
     
     # Endpoint para crear suscriptores
     path('create-subscriber/', create_subscriber_view, name='create_subscriber'),

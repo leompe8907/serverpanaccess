@@ -4,6 +4,7 @@ Cliente para interactuar con la API de PanAccess.
 Este módulo proporciona una clase cliente para realizar llamadas a la API
 de PanAccess, manejando automáticamente la autenticación y el sessionId.
 """
+import json
 import logging
 import time
 import requests
@@ -170,9 +171,19 @@ class PanAccessClient:
         # Construir URL
         url = f"{self.base_url}?f={func_name}&requestMode=function"
         
+        # Serializar objetos anidados como JSON strings
+        # PanAccess espera objetos complejos serializados como JSON
+        serialized_params = {}
+        for key, value in parameters.items():
+            if isinstance(value, (dict, list)):
+                # Serializar objetos anidados como JSON string
+                serialized_params[key] = json.dumps(value)
+            else:
+                serialized_params[key] = value
+        
         # Preparar headers y datos
         headers = {"Content-Type": "application/x-www-form-urlencoded"}
-        param_string = urlencode(parameters)
+        param_string = urlencode(serialized_params)
         
         # Log de la petición
         logger.info(f"Llamando '{func_name}' - Parámetros: {log_parameters}")
