@@ -146,3 +146,56 @@ class SubscriberInfo(models.Model):
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+
+class SubscriberEmailRegistry(models.Model):
+    """
+    Registro de emails para prevenir múltiples cuentas.
+    Rastrea emails registrados y si el usuario compró contenido.
+    """
+    email = models.EmailField(unique=True, db_index=True)
+    subscriber_code = models.CharField(max_length=100, null=True, blank=True)
+    document = models.CharField(max_length=50, null=True, blank=True, db_index=True)
+    has_purchased = models.BooleanField(default=False)
+    purchased_at = models.DateTimeField(null=True, blank=True)
+    
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        verbose_name = "Registro de Email de Suscriptor"
+        verbose_name_plural = "Registros de Emails de Suscriptores"
+        indexes = [
+            models.Index(fields=['email']),
+            models.Index(fields=['document']),
+        ]
+    
+    def __str__(self):
+        return f"{self.email} - {self.subscriber_code or 'Sin código'}"
+
+
+class SubscriberDocumentRegistry(models.Model):
+    """
+    Registro de documentos para prevenir múltiples cuentas.
+    Complementa la validación por email con validación por documento de identidad.
+    """
+    document = models.CharField(max_length=50, unique=True, db_index=True)
+    subscriber_code = models.CharField(max_length=100, null=True, blank=True)
+    email = models.EmailField(null=True, blank=True)
+    has_purchased = models.BooleanField(default=False)
+    purchased_at = models.DateTimeField(null=True, blank=True)
+    
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        verbose_name = "Registro de Documento de Suscriptor"
+        verbose_name_plural = "Registros de Documentos de Suscriptores"
+        indexes = [
+            models.Index(fields=['document']),
+        ]
+    
+    def __str__(self):
+        return f"{self.document} - {self.subscriber_code or 'Sin código'}"

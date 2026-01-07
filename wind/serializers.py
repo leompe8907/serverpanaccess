@@ -1,6 +1,9 @@
 from django.utils import timezone
 from rest_framework import serializers
-from .models import (ListOfSubscriber, ListOfSmartcards, SubscriberLoginInfo, SubscriberInfo, ListOfProducts)
+from .models import (
+    ListOfSubscriber, ListOfSmartcards, SubscriberLoginInfo, SubscriberInfo, 
+    ListOfProducts, SubscriberEmailRegistry, SubscriberDocumentRegistry
+)
 
 class ListOfSubscriberSerializer(serializers.ModelSerializer):
     """Serializer para datos raw de suscriptores desde Panaccess"""
@@ -112,11 +115,14 @@ class CreateSubscriberSerializer(serializers.Serializer):
     
     El código del suscriptor se genera automáticamente con formato AUTO + número.
     El supervisor se fija automáticamente a "AUTOMATICO".
+    El email es requerido para validación única y prevención de cuentas duplicadas.
     """
     # Campos requeridos
     lastName = serializers.CharField(required=True, max_length=100)
     firstName = serializers.CharField(required=True, max_length=100)
+    email = serializers.EmailField(required=True, help_text="Email requerido para validación única")
     
     # Campos opcionales
+    phone = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=50)
     hcId = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=100)
     comment = serializers.CharField(required=False, allow_null=True, allow_blank=True)
