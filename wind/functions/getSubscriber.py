@@ -220,71 +220,107 @@ def download_subscribers_since_last(session_id=None, limit=100):
 
 def compare_and_update_all_subscribers(session_id=None, limit=100):
     """
-    Compara todos los suscriptores de Panaccess con los de la base local y actualiza si hay diferencias.
+    Compara todos los suscriptores de Panaccess con los de la base local:
+    - Actualiza los existentes si hay diferencias
+    - Elimina los que ya no existen en PanAccess
     
     Args:
         session_id: ID de sesión (opcional, se usa el singleton si no se proporciona)
         limit: Cantidad máxima de registros por página
+    
+    Returns:
+        Diccionario con estadísticas: {'updated': int, 'deleted': int}
     """
-    logger.info("Actualizando suscriptores existentes")
+    logger.info("Actualizando suscriptores existentes y eliminando los que ya no existen en PanAccess")
+    
+    # Obtener todos los códigos locales
     local_data = {
         obj.code: obj for obj in ListOfSubscriber.objects.all() if obj.code
     }
+    
+    # Obtener todos los códigos remotos desde PanAccess
+    remote_codes = set()
     offset = 0
     total_updated = 0
+    
     while True:
         response = CallListSubscribers(session_id, offset, limit)
         remote_list = response.get("rows", [])
         if not remote_list:
             break
+            
         for row in remote_list:
             if not isinstance(row.get("cell"), list) or len(row.get("cell", [])) < 12:
                 continue
             
             cell = row["cell"]
             code = cell[0] if len(cell) > 0 and cell[0] else None
-            if not code or code not in local_data:
+            if not code:
                 continue
             
-            remote = {
-                "lastName": cell[1] if len(cell) > 1 and cell[1] else None,
-                "firstName": cell[2] if len(cell) > 2 and cell[2] else None,
-                "smartcards": cell[3] if len(cell) > 3 and cell[3] else [],
-                "hcId": cell[4] if len(cell) > 4 and cell[4] else None,
-                "hcName": cell[5] if len(cell) > 5 and cell[5] else None,
-                "country": cell[6] if len(cell) > 6 and cell[6] else None,
-                "city": cell[7] if len(cell) > 7 and cell[7] else None,
-                "zip": cell[8] if len(cell) > 8 and cell[8] else None,
-                "address": cell[9] if len(cell) > 9 and cell[9] else None,
-                "created": cell[10] if len(cell) > 10 and cell[10] else None,
-                "modified": cell[11] if len(cell) > 11 and cell[11] else None,
-            }
-            local_obj = local_data[code]
-            changed_fields = []
-            for key, val in remote.items():
-                if hasattr(local_obj, key):
-                    local_val = getattr(local_obj, key)
-                    if isinstance(local_val, list) and isinstance(val, list):
-                        if local_val != val:
+            # Agregar código a la lista de remotos
+            remote_codes.add(code)
+            
+            # Si existe localmente, actualizarlo
+            if code in local_data:
+                remote = {
+                    "lastName": cell[1] if len(cell) > 1 and cell[1] else None,
+                    "firstName": cell[2] if len(cell) > 2 and cell[2] else None,
+                    "smartcards": cell[3] if len(cell) > 3 and cell[3] else [],
+                    "hcId": cell[4] if len(cell) > 4 and cell[4] else None,
+                    "hcName": cell[5] if len(cell) > 5 and cell[5] else None,
+                    "country": cell[6] if len(cell) > 6 and cell[6] else None,
+                    "city": cell[7] if len(cell) > 7 and cell[7] else None,
+                    "zip": cell[8] if len(cell) > 8 and cell[8] else None,
+                    "address": cell[9] if len(cell) > 9 and cell[9] else None,
+                    "created": cell[10] if len(cell) > 10 and cell[10] else None,
+                    "modified": cell[11] if len(cell) > 11 and cell[11] else None,
+                }
+                local_obj = local_data[code]
+                changed_fields = []
+                for key, val in remote.items():
+                    if hasattr(local_obj, key):
+                        local_val = getattr(local_obj, key)
+                        if isinstance(local_val, list) and isinstance(val, list):
+                            if local_val != val:
+                                setattr(local_obj, key, val)
+                                changed_fields.append(key)
+                        elif str(local_val) != str(val):
                             setattr(local_obj, key, val)
                             changed_fields.append(key)
-                    elif str(local_val) != str(val):
-                        setattr(local_obj, key, val)
-                        changed_fields.append(key)
-            if changed_fields:
-                try:
-                    local_obj.save(update_fields=changed_fields)
-                    total_updated += 1
-                    
-                    if fetch_login_info_for_subscriber and code:
-                        try:
-                            fetch_login_info_for_subscriber(session_id, code)
-                        except Exception:
-                            pass
-                except Exception as e:
-                    logger.error(f"Error actualizando código {code}: {str(e)}")
+                if changed_fields:
+                    try:
+                        local_obj.save(update_fields=changed_fields)
+                        total_updated += 1
+                        
+                        if fetch_login_info_for_subscriber and code:
+                            try:
+                                fetch_login_info_for_subscriber(session_id, code)
+                            except Exception:
+                                pass
+                    except Exception as e:
+                        logger.error(f"Error actualizando código {code}: {str(e)}")
+        
         offset += limit
-    logger.info(f"Actualizados {total_updated} suscriptores")
+    
+    # Eliminar los que están en local pero no en PanAccess
+    local_codes = set(local_data.keys())
+    codes_to_delete = local_codes - remote_codes
+    
+    total_deleted = 0
+    if codes_to_delete:
+        try:
+            deleted_count = ListOfSubscriber.objects.filter(code__in=codes_to_delete).delete()[0]
+            total_deleted = deleted_count
+            logger.info(f"Eliminados {total_deleted} suscriptores que ya no existen en PanAccess: {list(codes_to_delete)}")
+        except Exception as e:
+            logger.error(f"Error eliminando suscriptores: {str(e)}")
+    
+    logger.info(f"Actualizados {total_updated} suscriptores, eliminados {total_deleted} suscriptores")
+    return {
+        'updated': total_updated,
+        'deleted': total_deleted
+    }
 
 def sync_subscribers(session_id=None, limit=100):
     """
