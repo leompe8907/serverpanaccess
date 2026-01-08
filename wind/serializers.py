@@ -119,12 +119,12 @@ class CreateSubscriberSerializer(serializers.Serializer):
     El código del suscriptor puede ser proporcionado por el usuario (normalmente el documento)
     o generado automáticamente con formato AUTO + número.
     El supervisor se fija automáticamente a "AUTOMATICO".
-    El email es requerido para validación única y prevención de cuentas duplicadas.
+    El email es opcional (si se proporciona, se valida y se agrega como contacto).
     """
     # Campos requeridos
     lastName = serializers.CharField(required=True, max_length=100)
     firstName = serializers.CharField(required=True, max_length=100)
-    email = serializers.EmailField(required=True, help_text="Email requerido para validación única")
+    email = serializers.EmailField(required=False, allow_null=True, allow_blank=True, help_text="Email opcional para validación única y contacto")
     
     # Campo opcional: código personalizado (normalmente el documento)
     code = serializers.CharField(

@@ -37,15 +37,15 @@ def create_subscriber_view(request):
     o generado automáticamente con formato AUTO + número.
     El supervisor se fija automáticamente a "AUTOMATICO".
     
-    Valida email para prevenir múltiples cuentas duplicadas.
-    Si se proporcionan email o teléfono, se agregan automáticamente como contactos.
+    Si se proporciona email, se valida para prevenir múltiples cuentas duplicadas.
+    Si se proporcionan email o teléfono, se intentan agregar automáticamente como contactos.
     
     Body (JSON):
     {
         "code": "123456789",            // Opcional - código personalizado (documento). Si no se proporciona, se genera automáticamente
         "lastName": "Pérez",            // Requerido
         "firstName": "Juan",            // Requerido
-        "email": "juan@example.com",    // Requerido
+        "email": "juan@example.com",    // Opcional - si se proporciona, se valida y se agrega como contacto
         "phone": "+1234567890",         // Opcional
         "hcId": "HC123",                // Opcional
         "countryCode": "DO",            // Opcional (default: "DO")
@@ -67,31 +67,26 @@ def create_subscriber_view(request):
     data = serializer.validated_data
     panaccess = get_panaccess()
     
-    # VALIDACIÓN: Verificar email único
+    # VALIDACIÓN: Verificar email único (solo si se proporciona)
     email = data.get('email')
+    email_normalized = None
     
-    if not email:
-        return Response({
-            'success': False,
-            'message': 'El email es requerido para el registro',
-            'errors': {'email': ['Este campo es requerido.']}
-        }, status=status.HTTP_400_BAD_REQUEST)
-    
-    # Normalizar email (minúsculas, sin espacios)
-    email_normalized = email.lower().strip()
-    
-    # Validar si el email puede usarse para registro
-    is_valid, validation_message, email_registry = validate_email_for_registration(email_normalized)
-    
-    if not is_valid:
-        return Response({
-            'success': False,
-            'message': validation_message,
-            'error_type': 'EmailAlreadyRegistered',
-            'errors': {
-                'email': [validation_message]
-            }
-        }, status=status.HTTP_400_BAD_REQUEST)
+    if email:
+        # Normalizar email (minúsculas, sin espacios)
+        email_normalized = email.lower().strip()
+        
+        # Validar si el email puede usarse para registro
+        is_valid, validation_message, email_registry = validate_email_for_registration(email_normalized)
+        
+        if not is_valid:
+            return Response({
+                'success': False,
+                'message': validation_message,
+                'error_type': 'EmailAlreadyRegistered',
+                'errors': {
+                    'email': [validation_message]
+                }
+            }, status=status.HTTP_400_BAD_REQUEST)
     
     try:
         # Determinar el código del suscriptor
@@ -164,38 +159,39 @@ def create_subscriber_view(request):
         
         logger.info(f"Suscriptor {subscriber_code} creado exitosamente")
         
-        # Registrar email en el registro de validación
-        email_registry, email_created = SubscriberEmailRegistry.objects.update_or_create(
-            email=email_normalized,
-            defaults={
-                'subscriber_code': subscriber_code,
-                'has_purchased': False,
-            }
-        )
-        
-        if email_created:
-            logger.info(f"Registro de email creado: {email_normalized} -> {subscriber_code}")
-        else:
-            logger.info(f"Registro de email actualizado: {email_normalized} -> {subscriber_code}")
+        # Registrar email en el registro de validación (solo si se proporcionó)
+        if email_normalized:
+            email_registry, email_created = SubscriberEmailRegistry.objects.update_or_create(
+                email=email_normalized,
+                defaults={
+                    'subscriber_code': subscriber_code,
+                    'has_purchased': False,
+                }
+            )
+            
+            if email_created:
+                logger.info(f"Registro de email creado: {email_normalized} -> {subscriber_code}")
+            else:
+                logger.info(f"Registro de email actualizado: {email_normalized} -> {subscriber_code}")
         
         # Agregar contactos si se proporcionaron
         contacts_added = []
         contacts_errors = []
         
-        # Agregar email si está presente
-        if data.get('email'):
+        # Agregar email como contacto si está presente (solo si se proporcionó)
+        if email_normalized:
             try:
-                logger.info(f"Agregando email {data.get('email')} al suscriptor {subscriber_code}")
+                logger.info(f"Agregando email {email_normalized} al suscriptor {subscriber_code}")
                 contact_params = {
                     'subscriberCode': subscriber_code,
                     'contact[type]': 'email',
                     'contact[isBusiness]': False,
-                    'contact[contact]': data.get('email')
+                    'contact[contact]': email_normalized
                 }
                 contact_response = panaccess.call('addContactToSubscriber', contact_params)
                 
                 if contact_response.get('success'):
-                    contacts_added.append({'type': 'email', 'value': data.get('email')})
+                    contacts_added.append({'type': 'email', 'value': email_normalized})
                     logger.info(f"Email agregado exitosamente")
                 else:
                     error_msg = contact_response.get('errorMessage', 'Error desconocido')
@@ -238,11 +234,14 @@ def create_subscriber_view(request):
                 'supervisor': 'AUTOMATICO',
                 'lastName': data['lastName'],
                 'firstName': data['firstName'],
-                'email': email_normalized,
                 'hcId': data.get('hcId'),
                 'comment': data.get('comment')
             }
         }
+        
+        # Agregar email solo si se proporcionó
+        if email_normalized:
+            response_data['data']['email'] = email_normalized
         
         # Agregar información de contactos a la respuesta
         if contacts_added:
