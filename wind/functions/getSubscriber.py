@@ -78,43 +78,100 @@ def store_or_update_subscribers(data_batch):
 
 def fetch_all_subscribers(session_id=None, limit=100):
     """
-    Descarga todos los suscriptores desde Panaccess y los almacena en la base de datos.
+    Descarga todos los suscriptores extendidos desde Panaccess y los almacena en la base de datos.
     
     Args:
         session_id: ID de sesión (opcional, se usa el singleton si no se proporciona)
         limit: Cantidad máxima de registros por página
     """
-    logger.info("Descarga completa de suscriptores")
+    logger.info("Descarga completa de suscriptores extendidos")
     offset = 0
     all_data = []
+    
+    try:
+        from dateutil import parser
+    except ImportError:
+        logger.warning("python-dateutil no está instalado, las fechas pueden no parsearse correctamente")
+        parser = None
+    
     while True:
-        result = CallListSubscribers(session_id, offset, limit)
+        result = CallListExtendedSubscribers(session_id, offset, limit)
         rows = result.get("rows", [])
         if not rows:
             break
+        
         for row in rows:
-            if not isinstance(row.get("cell"), list) or len(row.get("cell", [])) < 12:
-                continue
+            # Procesar cada suscriptor extendido
+            subscriber_data = {
+                "id": row.get("subscriberCode", ""),  # Usar subscriberCode como id
+                "code": row.get("subscriberCode"),
+                "lastName": row.get("lastName"),
+                "firstName": row.get("firstName"),
+                "smartcards": row.get("smartcards"),
+                "regionId": row.get("regionId"),
+                "countryCode": row.get("countryCode"),
+                "caf": row.get("caf"),
+                "supervisor": row.get("supervisor"),
+                "comment": row.get("comment"),
+                "ip": row.get("ip"),
+                "emails": row.get("emails"),
+                "phones": row.get("phones"),
+                "faxes": row.get("faxes"),
+                "skypes": row.get("skypes"),
+                "mobiles": row.get("mobiles"),
+                "custodians": row.get("custodians"),
+                "address1": row.get("address1"),
+                "address2": row.get("address2"),
+                "address3": row.get("address3"),
+                "addressCount": row.get("addressCount", 0),
+                "newsletterAccepted": row.get("newsletterAccepted", False),
+                "tags": row.get("tags"),
+                "uniqueLogin": row.get("uniqueLogin"),
+            }
             
-            cell = row["cell"]
-            all_data.append({
-                "id": str(row.get("id")),
-                "code": cell[0] if len(cell) > 0 and cell[0] else None,
-                "lastName": cell[1] if len(cell) > 1 and cell[1] else None,
-                "firstName": cell[2] if len(cell) > 2 and cell[2] else None,
-                "smartcards": cell[3] if len(cell) > 3 and cell[3] else [],
-                "hcId": cell[4] if len(cell) > 4 and cell[4] else None,
-                "hcName": cell[5] if len(cell) > 5 and cell[5] else None,
-                "country": cell[6] if len(cell) > 6 and cell[6] else None,
-                "city": cell[7] if len(cell) > 7 and cell[7] else None,
-                "zip": cell[8] if len(cell) > 8 and cell[8] else None,
-                "address": cell[9] if len(cell) > 9 and cell[9] else None,
-                "created": cell[10] if len(cell) > 10 and cell[10] else None,
-                "modified": cell[11] if len(cell) > 11 and cell[11] else None,
-            })
+            # Procesar fechas
+            if row.get("created"):
+                try:
+                    if parser:
+                        subscriber_data["created"] = parser.parse(row.get("created"))
+                    else:
+                        # Fallback simple si no hay parser
+                        subscriber_data["created"] = row.get("created")
+                except Exception as e:
+                    logger.warning(f"Error parseando fecha created: {e}")
+                    subscriber_data["created"] = None
+            else:
+                subscriber_data["created"] = None
+            
+            if row.get("firstOrderTime"):
+                try:
+                    if parser:
+                        subscriber_data["firstOrderTime"] = parser.parse(row.get("firstOrderTime"))
+                    else:
+                        subscriber_data["firstOrderTime"] = row.get("firstOrderTime")
+                except Exception as e:
+                    logger.warning(f"Error parseando fecha firstOrderTime: {e}")
+                    subscriber_data["firstOrderTime"] = None
+            else:
+                subscriber_data["firstOrderTime"] = None
+            
+            if row.get("lastExpiryTime"):
+                try:
+                    if parser:
+                        subscriber_data["lastExpiryTime"] = parser.parse(row.get("lastExpiryTime"))
+                    else:
+                        subscriber_data["lastExpiryTime"] = row.get("lastExpiryTime")
+                except Exception as e:
+                    logger.warning(f"Error parseando fecha lastExpiryTime: {e}")
+                    subscriber_data["lastExpiryTime"] = None
+            else:
+                subscriber_data["lastExpiryTime"] = None
+            
+            all_data.append(subscriber_data)
+        
         offset += limit
     
-    logger.info(f"Descargados {len(all_data)} suscriptores")
+    logger.info(f"Descargados {len(all_data)} suscriptores extendidos")
     result = store_all_subscribers_in_chunks(all_data)
     
     if fetch_login_info_for_subscriber:
@@ -152,6 +209,7 @@ def store_all_subscribers_in_chunks(data_batch, chunk_size=100):
 def download_subscribers_since_last(session_id=None, limit=100):
     """
     Descarga suscriptores nuevos desde el último registrado (modo incremental).
+    Usa la API extendida para obtener información completa.
     
     Args:
         session_id: ID de sesión (opcional, se usa el singleton si no se proporciona)
@@ -165,37 +223,95 @@ def download_subscribers_since_last(session_id=None, limit=100):
     offset = 0
     new_data = []
     found = False
+    
+    try:
+        from dateutil import parser
+    except ImportError:
+        logger.warning("python-dateutil no está instalado, las fechas pueden no parsearse correctamente")
+        parser = None
+    
     while True:
-        result = CallListSubscribers(session_id, offset, limit)
+        result = CallListExtendedSubscribers(session_id, offset, limit)
         rows = result.get("rows", [])
         if not rows:
             break
+        
         for row in rows:
-            if not isinstance(row.get("cell"), list) or len(row.get("cell", [])) < 12:
+            code = row.get("subscriberCode")
+            if not code:
                 continue
-            
-            cell = row["cell"]
-            code = cell[0] if len(cell) > 0 and cell[0] else None
             
             if code == highest_code:
                 found = True
                 break
             
-            new_data.append({
-                "id": str(row.get("id")),
+            # Procesar cada suscriptor extendido
+            subscriber_data = {
+                "id": code,
                 "code": code,
-                "lastName": cell[1] if len(cell) > 1 and cell[1] else None,
-                "firstName": cell[2] if len(cell) > 2 and cell[2] else None,
-                "smartcards": cell[3] if len(cell) > 3 and cell[3] else [],
-                "hcId": cell[4] if len(cell) > 4 and cell[4] else None,
-                "hcName": cell[5] if len(cell) > 5 and cell[5] else None,
-                "country": cell[6] if len(cell) > 6 and cell[6] else None,
-                "city": cell[7] if len(cell) > 7 and cell[7] else None,
-                "zip": cell[8] if len(cell) > 8 and cell[8] else None,
-                "address": cell[9] if len(cell) > 9 and cell[9] else None,
-                "created": cell[10] if len(cell) > 10 and cell[10] else None,
-                "modified": cell[11] if len(cell) > 11 and cell[11] else None,
-            })
+                "lastName": row.get("lastName"),
+                "firstName": row.get("firstName"),
+                "smartcards": row.get("smartcards"),
+                "regionId": row.get("regionId"),
+                "countryCode": row.get("countryCode"),
+                "caf": row.get("caf"),
+                "supervisor": row.get("supervisor"),
+                "comment": row.get("comment"),
+                "ip": row.get("ip"),
+                "emails": row.get("emails"),
+                "phones": row.get("phones"),
+                "faxes": row.get("faxes"),
+                "skypes": row.get("skypes"),
+                "mobiles": row.get("mobiles"),
+                "custodians": row.get("custodians"),
+                "address1": row.get("address1"),
+                "address2": row.get("address2"),
+                "address3": row.get("address3"),
+                "addressCount": row.get("addressCount", 0),
+                "newsletterAccepted": row.get("newsletterAccepted", False),
+                "tags": row.get("tags"),
+                "uniqueLogin": row.get("uniqueLogin"),
+            }
+            
+            # Procesar fechas
+            if row.get("created"):
+                try:
+                    if parser:
+                        subscriber_data["created"] = parser.parse(row.get("created"))
+                    else:
+                        subscriber_data["created"] = row.get("created")
+                except Exception as e:
+                    logger.warning(f"Error parseando fecha created: {e}")
+                    subscriber_data["created"] = None
+            else:
+                subscriber_data["created"] = None
+            
+            if row.get("firstOrderTime"):
+                try:
+                    if parser:
+                        subscriber_data["firstOrderTime"] = parser.parse(row.get("firstOrderTime"))
+                    else:
+                        subscriber_data["firstOrderTime"] = row.get("firstOrderTime")
+                except Exception as e:
+                    logger.warning(f"Error parseando fecha firstOrderTime: {e}")
+                    subscriber_data["firstOrderTime"] = None
+            else:
+                subscriber_data["firstOrderTime"] = None
+            
+            if row.get("lastExpiryTime"):
+                try:
+                    if parser:
+                        subscriber_data["lastExpiryTime"] = parser.parse(row.get("lastExpiryTime"))
+                    else:
+                        subscriber_data["lastExpiryTime"] = row.get("lastExpiryTime")
+                except Exception as e:
+                    logger.warning(f"Error parseando fecha lastExpiryTime: {e}")
+                    subscriber_data["lastExpiryTime"] = None
+            else:
+                subscriber_data["lastExpiryTime"] = None
+            
+            new_data.append(subscriber_data)
+        
         if found:
             break
         offset += limit
@@ -220,7 +336,7 @@ def download_subscribers_since_last(session_id=None, limit=100):
 
 def compare_and_update_all_subscribers(session_id=None, limit=100):
     """
-    Compara todos los suscriptores de Panaccess con los de la base local:
+    Compara todos los suscriptores extendidos de Panaccess con los de la base local:
     - Actualiza los existentes si hay diferencias
     - Elimina los que ya no existen en PanAccess
     
@@ -243,18 +359,20 @@ def compare_and_update_all_subscribers(session_id=None, limit=100):
     offset = 0
     total_updated = 0
     
+    try:
+        from dateutil import parser
+    except ImportError:
+        logger.warning("python-dateutil no está instalado, las fechas pueden no parsearse correctamente")
+        parser = None
+    
     while True:
-        response = CallListSubscribers(session_id, offset, limit)
+        response = CallListExtendedSubscribers(session_id, offset, limit)
         remote_list = response.get("rows", [])
         if not remote_list:
             break
             
         for row in remote_list:
-            if not isinstance(row.get("cell"), list) or len(row.get("cell", [])) < 12:
-                continue
-            
-            cell = row["cell"]
-            code = cell[0] if len(cell) > 0 and cell[0] else None
+            code = row.get("subscriberCode")
             if not code:
                 continue
             
@@ -263,31 +381,88 @@ def compare_and_update_all_subscribers(session_id=None, limit=100):
             
             # Si existe localmente, actualizarlo
             if code in local_data:
-                remote = {
-                    "lastName": cell[1] if len(cell) > 1 and cell[1] else None,
-                    "firstName": cell[2] if len(cell) > 2 and cell[2] else None,
-                    "smartcards": cell[3] if len(cell) > 3 and cell[3] else [],
-                    "hcId": cell[4] if len(cell) > 4 and cell[4] else None,
-                    "hcName": cell[5] if len(cell) > 5 and cell[5] else None,
-                    "country": cell[6] if len(cell) > 6 and cell[6] else None,
-                    "city": cell[7] if len(cell) > 7 and cell[7] else None,
-                    "zip": cell[8] if len(cell) > 8 and cell[8] else None,
-                    "address": cell[9] if len(cell) > 9 and cell[9] else None,
-                    "created": cell[10] if len(cell) > 10 and cell[10] else None,
-                    "modified": cell[11] if len(cell) > 11 and cell[11] else None,
-                }
                 local_obj = local_data[code]
                 changed_fields = []
-                for key, val in remote.items():
+                
+                # Mapear campos del formato extendido
+                field_mapping = {
+                    "lastName": row.get("lastName"),
+                    "firstName": row.get("firstName"),
+                    "smartcards": row.get("smartcards"),
+                    "regionId": row.get("regionId"),
+                    "countryCode": row.get("countryCode"),
+                    "caf": row.get("caf"),
+                    "supervisor": row.get("supervisor"),
+                    "comment": row.get("comment"),
+                    "ip": row.get("ip"),
+                    "emails": row.get("emails"),
+                    "phones": row.get("phones"),
+                    "faxes": row.get("faxes"),
+                    "skypes": row.get("skypes"),
+                    "mobiles": row.get("mobiles"),
+                    "custodians": row.get("custodians"),
+                    "address1": row.get("address1"),
+                    "address2": row.get("address2"),
+                    "address3": row.get("address3"),
+                    "addressCount": row.get("addressCount", 0),
+                    "newsletterAccepted": row.get("newsletterAccepted", False),
+                    "tags": row.get("tags"),
+                    "uniqueLogin": row.get("uniqueLogin"),
+                }
+                
+                # Procesar fechas
+                if row.get("created"):
+                    try:
+                        if parser:
+                            field_mapping["created"] = parser.parse(row.get("created"))
+                        else:
+                            field_mapping["created"] = row.get("created")
+                    except Exception as e:
+                        logger.warning(f"Error parseando fecha created: {e}")
+                        field_mapping["created"] = None
+                else:
+                    field_mapping["created"] = None
+                
+                if row.get("firstOrderTime"):
+                    try:
+                        if parser:
+                            field_mapping["firstOrderTime"] = parser.parse(row.get("firstOrderTime"))
+                        else:
+                            field_mapping["firstOrderTime"] = row.get("firstOrderTime")
+                    except Exception as e:
+                        logger.warning(f"Error parseando fecha firstOrderTime: {e}")
+                        field_mapping["firstOrderTime"] = None
+                else:
+                    field_mapping["firstOrderTime"] = None
+                
+                if row.get("lastExpiryTime"):
+                    try:
+                        if parser:
+                            field_mapping["lastExpiryTime"] = parser.parse(row.get("lastExpiryTime"))
+                        else:
+                            field_mapping["lastExpiryTime"] = row.get("lastExpiryTime")
+                    except Exception as e:
+                        logger.warning(f"Error parseando fecha lastExpiryTime: {e}")
+                        field_mapping["lastExpiryTime"] = None
+                else:
+                    field_mapping["lastExpiryTime"] = None
+                
+                # Comparar y actualizar campos
+                for key, val in field_mapping.items():
                     if hasattr(local_obj, key):
                         local_val = getattr(local_obj, key)
                         if isinstance(local_val, list) and isinstance(val, list):
                             if local_val != val:
                                 setattr(local_obj, key, val)
                                 changed_fields.append(key)
+                        elif isinstance(local_val, dict) and isinstance(val, dict):
+                            if local_val != val:
+                                setattr(local_obj, key, val)
+                                changed_fields.append(key)
                         elif str(local_val) != str(val):
                             setattr(local_obj, key, val)
                             changed_fields.append(key)
+                
                 if changed_fields:
                     try:
                         local_obj.save(update_fields=changed_fields)
@@ -381,6 +556,41 @@ def CallListSubscribers(session_id=None, offset=0, limit=100):
             return response.get('answer', {})
         else:
             error_message = response.get('errorMessage', 'Error desconocido al obtener suscriptores')
+            logger.error(f"Error PanAccess: {error_message}")
+            raise PanAccessException(error_message)
+
+    except PanAccessException:
+        raise
+    except Exception as e:
+        logger.error(f"Error llamada API: {str(e)}", exc_info=True)
+        raise
+
+def CallListExtendedSubscribers(session_id=None, offset=0, limit=100):
+    """
+    Llama a la API de Panaccess para obtener la lista extendida de suscriptores.
+    
+    Args:
+        session_id: ID de sesión (opcional, se usa el singleton si no se proporciona)
+        offset: Índice de inicio para paginación
+        limit: Cantidad máxima de registros a obtener
+    
+    Returns:
+        Diccionario con la respuesta de PanAccess
+    """
+    try:
+        panaccess = get_panaccess()
+        parameters = {
+            'usePrefixFlags': True,
+            'offset': offset,
+            'limit': limit,
+            'orderBy': 'code',
+        }
+        response = panaccess.call('getListOfExtendedSubscribers', parameters)
+
+        if response.get('success'):
+            return response.get('answer', {})
+        else:
+            error_message = response.get('errorMessage', 'Error desconocido al obtener suscriptores extendidos')
             logger.error(f"Error PanAccess: {error_message}")
             raise PanAccessException(error_message)
 

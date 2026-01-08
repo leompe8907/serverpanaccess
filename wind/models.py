@@ -6,7 +6,7 @@ from .utils.encryption import encrypt_value, decrypt_value
 
 class ListOfSubscriber(models.Model):
     id = models.CharField(primary_key=True, unique=True, max_length=100)
-    code = models.CharField(max_length=100, blank=True, null=True, unique=True)
+    code = models.CharField(max_length=100, blank=True, null=True, unique=True, db_index=True)
     lastName = models.CharField(max_length=100, null=True, blank=True)
     firstName = models.CharField(max_length=100, null=True, blank=True)
     smartcards = models.JSONField(null=True, blank=True)
@@ -16,8 +16,56 @@ class ListOfSubscriber(models.Model):
     city = models.CharField(max_length=100, null=True, blank=True)
     zip = models.CharField(max_length=20, null=True, blank=True)
     address = models.CharField(max_length=255, null=True, blank=True)
-    created = models.DateField(null=True, blank=True)
+    created = models.DateTimeField(null=True, blank=True)  # Cambiado de DateField a DateTimeField
     modified = models.DateField(null=True, blank=True)
+    
+    # Nuevos campos de información extendida
+    regionId = models.IntegerField(null=True, blank=True)
+    countryCode = models.CharField(max_length=10, null=True, blank=True)
+    caf = models.CharField(max_length=255, null=True, blank=True)
+    supervisor = models.CharField(max_length=255, null=True, blank=True)
+    comment = models.TextField(null=True, blank=True)
+    ip = models.GenericIPAddressField(null=True, blank=True)
+    
+    # Contactos (JSON para almacenar listas)
+    emails = models.JSONField(null=True, blank=True)  # Lista de emails
+    phones = models.JSONField(null=True, blank=True)  # Lista de teléfonos
+    faxes = models.JSONField(null=True, blank=True)
+    skypes = models.JSONField(null=True, blank=True)
+    mobiles = models.JSONField(null=True, blank=True)
+    custodians = models.JSONField(null=True, blank=True)
+    
+    # Campo extraído para búsqueda rápida (primer email)
+    primary_email = models.EmailField(null=True, blank=True, db_index=True)
+    
+    # Direcciones (JSON)
+    address1 = models.JSONField(null=True, blank=True)
+    address2 = models.JSONField(null=True, blank=True)
+    address3 = models.JSONField(null=True, blank=True)
+    addressCount = models.IntegerField(default=0, null=True, blank=True)
+    
+    # Información adicional
+    newsletterAccepted = models.BooleanField(default=False, null=True, blank=True)
+    firstOrderTime = models.DateTimeField(null=True, blank=True)
+    lastExpiryTime = models.DateTimeField(null=True, blank=True)
+    uniqueLogin = models.IntegerField(null=True, blank=True)
+    tags = models.JSONField(null=True, blank=True)
+    
+    class Meta:
+        indexes = [
+            models.Index(fields=['code']),
+            models.Index(fields=['primary_email']),
+            # Índice compuesto para búsquedas comunes
+            models.Index(fields=['code', 'primary_email']),
+        ]
+    
+    def save(self, *args, **kwargs):
+        # Extraer primary_email de la lista de emails
+        if self.emails and isinstance(self.emails, list) and len(self.emails) > 0:
+            self.primary_email = self.emails[0].lower().strip() if self.emails[0] else None
+        elif self.emails is None or (isinstance(self.emails, list) and len(self.emails) == 0):
+            self.primary_email = None
+        super().save(*args, **kwargs)
 
     def __str__(self):
         """Representación string del suscriptor."""

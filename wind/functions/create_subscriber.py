@@ -80,7 +80,7 @@ def create_subscriber_view(request):
     # Normalizar email (minúsculas, sin espacios)
     email_normalized = email.lower().strip()
     
-    # Validar si el email puede usarse para registro
+    # Validar si el email puede usarse para registro (tabla local de registros)
     is_valid, validation_message, email_registry = validate_email_for_registration(email_normalized)
     
     if not is_valid:
@@ -90,6 +90,18 @@ def create_subscriber_view(request):
             'error_type': 'EmailAlreadyRegistered',
             'errors': {
                 'email': [validation_message]
+            }
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Validar email en BD local de suscriptores (validación rápida desde PanAccess)
+    from wind.models import ListOfSubscriber
+    if ListOfSubscriber.objects.filter(primary_email__iexact=email_normalized).exists():
+        return Response({
+            'success': False,
+            'message': 'Este email ya está registrado en otro suscriptor',
+            'error_type': 'EmailAlreadyInUse',
+            'errors': {
+                'email': ['Este email ya está en uso por otro suscriptor en PanAccess.']
             }
         }, status=status.HTTP_400_BAD_REQUEST)
     
