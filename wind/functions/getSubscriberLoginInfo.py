@@ -5,6 +5,7 @@ import logging
 from django.db import transaction
 from wind.models import SubscriberLoginInfo, ListOfSubscriber
 from wind.serializers import SubscriberLoginInfoSerializer
+from wind.utils.encryption import encrypt_value
 
 from wind.services import get_panaccess
 from wind.exceptions import PanAccessException
@@ -23,6 +24,7 @@ def DataBaseEmpty():
 def store_login_info_in_chunks(login_info_list, chunk_size=100):
     """
     Almacena información de login en la base de datos en bloques para mejorar el rendimiento.
+    Los passwords se encriptan antes de guardarse.
     """
     total = len(login_info_list)
     logger.info(f"Almacenando {total} registros de login info en chunks de {chunk_size}...")
@@ -30,7 +32,17 @@ def store_login_info_in_chunks(login_info_list, chunk_size=100):
     for i in range(0, total, chunk_size):
         chunk = login_info_list[i:i + chunk_size]
         try:
-            registros = [SubscriberLoginInfo(**item) for item in chunk]
+            # Procesar cada item para encriptar passwords
+            processed_chunk = []
+            for item in chunk:
+                # Si viene 'password', encriptarlo y guardarlo como 'password_hash'
+                if 'password' in item and item['password']:
+                    item['password_hash'] = encrypt_value(item['password'])
+                    # Eliminar 'password' para evitar conflictos
+                    item.pop('password', None)
+                processed_chunk.append(item)
+            
+            registros = [SubscriberLoginInfo(**item) for item in processed_chunk]
             SubscriberLoginInfo.objects.bulk_create(registros, ignore_conflicts=True)
             logger.info(f"Chunk {i//chunk_size + 1}: insertados {len(registros)} registros de login info")
         except Exception as e:
@@ -101,13 +113,16 @@ def fetch_login_info_for_subscriber(session_id=None, subscriber_code=None):
             logger.warning(f"No se obtuvo información de login para suscriptor {subscriber_code}")
             return False
         
-        # Preparar datos para el modelo
+        # Preparar datos para el modelo - ENCRIPTAR PASSWORD INMEDIATAMENTE
+        password_raw = result.get('password')
+        password_encrypted = encrypt_value(password_raw) if password_raw else None
+        
         login_data = {
             'subscriberCode': subscriber_code,
             'login1': result.get('login1'),
             'login2': result.get('login2'),
             'additionalLogins': result.get('additionalLogins'),
-            'password': result.get('password'),
+            'password_hash': password_encrypted,  # Password ya encriptado
             'licenses': result.get('licenses'),
         }
         
@@ -117,7 +132,7 @@ def fetch_login_info_for_subscriber(session_id=None, subscriber_code=None):
             defaults=login_data
         )
         
-        logger.debug(f"Login info actualizada para suscriptor {subscriber_code}")
+        logger.debug(f"Login info actualizada para suscriptor {subscriber_code} (password encriptado)")
         return True
         
     except PanAccessException as e:

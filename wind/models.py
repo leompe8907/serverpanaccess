@@ -1,6 +1,8 @@
 from django.db import models
 from django.utils import timezone
 
+from .utils.encryption import encrypt_value, decrypt_value
+
 
 class ListOfSubscriber(models.Model):
     id = models.CharField(primary_key=True, unique=True, max_length=100)
@@ -75,12 +77,29 @@ class SubscriberLoginInfo(models.Model):
     login1 = models.IntegerField(null=True, blank=True)
     login2 = models.CharField(max_length=100, null=True, blank=True)
     additionalLogins = models.JSONField(null=True, blank=True)
-    password = models.CharField(max_length=100, null=True, blank=True)
+    password_hash = models.CharField(max_length=255, null=True, blank=True)  # Password encriptado
     licenses = models.JSONField(null=True, blank=True)
 
     def __str__(self):
         """Representación string de la información de login."""
         return f"Login Info - Subscriber: {self.subscriberCode or 'N/A'}"
+    
+    def set_password(self, raw_password):
+        """Encripta y guarda el password."""
+        if raw_password:
+            self.password_hash = encrypt_value(raw_password)
+        else:
+            self.password_hash = None
+    
+    def get_password(self):
+        """Desencripta y retorna el password."""
+        return decrypt_value(self.password_hash) if self.password_hash else None
+    
+    def check_password(self, raw_password):
+        """Verifica si el password proporcionado coincide con el almacenado."""
+        if not self.password_hash or not raw_password:
+            return False
+        return self.get_password() == raw_password
 
 class ListOfProducts(models.Model):
     productId = models.IntegerField(primary_key=True, unique=True)
@@ -147,6 +166,11 @@ class SubscriberInfo(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        indexes = [
+            models.Index(fields=['subscriber_code']),
+            models.Index(fields=['sn']),
+        ]
 
 class SubscriberEmailRegistry(models.Model):
     """
@@ -173,7 +197,6 @@ class SubscriberEmailRegistry(models.Model):
     
     def __str__(self):
         return f"{self.email} - {self.subscriber_code or 'Sin código'}"
-
 
 class SubscriberDocumentRegistry(models.Model):
     """

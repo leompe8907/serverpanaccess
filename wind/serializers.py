@@ -34,6 +34,9 @@ class ListOfSmartcardsSerializer(serializers.ModelSerializer):
 class SubscriberLoginInfoSerializer(serializers.ModelSerializer):
     """Serializer para información de login raw desde Panaccess"""
     
+    # Campo de solo lectura para password_hash (seguridad)
+    password_hash = serializers.CharField(read_only=True)
+    
     class Meta:
         model = SubscriberLoginInfo
         fields = '__all__'
@@ -113,7 +116,8 @@ class CreateSubscriberSerializer(serializers.Serializer):
     """
     Serializer para crear un nuevo suscriptor en PanAccess.
     
-    El código del suscriptor se genera automáticamente con formato AUTO + número.
+    El código del suscriptor puede ser proporcionado por el usuario (normalmente el documento)
+    o generado automáticamente con formato AUTO + número.
     El supervisor se fija automáticamente a "AUTOMATICO".
     El email es requerido para validación única y prevención de cuentas duplicadas.
     """
@@ -121,6 +125,15 @@ class CreateSubscriberSerializer(serializers.Serializer):
     lastName = serializers.CharField(required=True, max_length=100)
     firstName = serializers.CharField(required=True, max_length=100)
     email = serializers.EmailField(required=True, help_text="Email requerido para validación única")
+    
+    # Campo opcional: código personalizado (normalmente el documento)
+    code = serializers.CharField(
+        required=False, 
+        allow_null=True, 
+        allow_blank=True, 
+        max_length=100,
+        help_text="Código del suscriptor (documento). Si no se proporciona, se genera automáticamente con formato AUTO + número."
+    )
     
     # Campos opcionales
     phone = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=50)

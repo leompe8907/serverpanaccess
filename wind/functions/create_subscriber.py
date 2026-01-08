@@ -15,7 +15,7 @@ from django.utils import timezone
 from wind.serializers import CreateSubscriberSerializer
 from wind.services import get_panaccess
 from wind.exceptions import PanAccessException
-from wind.utils.subscriber_code_generator import generate_unique_subscriber_code
+from wind.utils.subscriber_code_generator import generate_unique_subscriber_code, validate_subscriber_code_uniqueness
 from wind.models import SubscriberEmailRegistry
 from wind.utils.email_validation import validate_email_for_registration
 
@@ -33,7 +33,8 @@ def create_subscriber_view(request):
     """
     Crea un nuevo suscriptor en PanAccess.
     
-    El código del suscriptor se genera automáticamente con formato AUTO + número.
+    El código del suscriptor puede ser proporcionado por el usuario (normalmente el documento)
+    o generado automáticamente con formato AUTO + número.
     El supervisor se fija automáticamente a "AUTOMATICO".
     
     Valida email para prevenir múltiples cuentas duplicadas.
@@ -41,16 +42,17 @@ def create_subscriber_view(request):
     
     Body (JSON):
     {
-        "lastName": "Pérez",       // Requerido
-        "firstName": "Juan",       // Requerido
-        "email": "juan@example.com", // Requerido
-        "phone": "+1234567890",     // Opcional
-        "hcId": "HC123",           // Opcional
-        "comment": "Comentario",   // Opcional
-        "countryCode": "AR",       // Opcional (default: "DO")
-        "regionId": 588,           // Opcional
-        "technicalNotes": "...",   // Opcional
-        "caf": "..."               // Opcional
+        "code": "123456789",            // Opcional - código personalizado (documento). Si no se proporciona, se genera automáticamente
+        "lastName": "Pérez",            // Requerido
+        "firstName": "Juan",            // Requerido
+        "email": "juan@example.com",    // Requerido
+        "phone": "+1234567890",         // Opcional
+        "hcId": "HC123",                // Opcional
+        "countryCode": "DO",            // Opcional (default: "DO")
+        "comment": "Comentario",        // Opcional
+        "regionId": 588,                // Opcional
+        "technicalNotes": "...",        // Opcional
+        "caf": "..."                    // Opcional
     }
     """
     serializer = CreateSubscriberSerializer(data=request.data)
@@ -92,17 +94,37 @@ def create_subscriber_view(request):
         }, status=status.HTTP_400_BAD_REQUEST)
     
     try:
-        # Generar código único automáticamente (formato AUTO + número)
-        logger.info("Generando código único de suscriptor...")
-        subscriber_code = generate_unique_subscriber_code(prefix='AUTO')
-        logger.info(f"Código generado: {subscriber_code}")
+        # Determinar el código del suscriptor
+        # Si el usuario proporciona un código (documento), validarlo y usarlo
+        # Si no, generar uno automáticamente con formato AUTO + número
+        user_provided_code = data.get('code')
+        
+        if user_provided_code and user_provided_code.strip():
+            # Usuario proporcionó un código (documento), validarlo
+            subscriber_code = user_provided_code.strip()
+            logger.info(f"Usuario proporcionó código (documento): {subscriber_code}")
+            
+            # Validar que el código sea único en PanAccess y BD local
+            if not validate_subscriber_code_uniqueness(subscriber_code):
+                return Response({
+                    'success': False,
+                    'message': f'El código de suscriptor "{subscriber_code}" ya existe',
+                    'errors': {'code': [f'El código "{subscriber_code}" ya está en uso. Por favor, elija otro.']}
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            logger.info(f"Código validado como único: {subscriber_code}")
+        else:
+            # Generar código único automáticamente (formato AUTO + número)
+            logger.info("Generando código único de suscriptor automáticamente...")
+            subscriber_code = generate_unique_subscriber_code(prefix='AUTO')
+            logger.info(f"Código generado automáticamente: {subscriber_code}")
         
         # Crear el suscriptor
         logger.info(f"Creando suscriptor: {subscriber_code}")
         # PanAccess requiere parámetros anidados con notación de corchetes
         # Formato esperado: subscriber[code], subscriber[hcId], subscriber[supervisor], etc.
         subscriber_params = {
-            'subscriber[code]': subscriber_code,
+            'subscriber[code]': subscriber_code,  # Usar el código determinado arriba
             'subscriber[hcId]': hcId,  # Siempre enviar hcId, vacío si no se proporciona
             'subscriber[supervisor]': 'AUTOMATICO',  # Fijo
             'subscriber[lastName]': data['lastName'],
