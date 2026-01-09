@@ -10,14 +10,7 @@ class ListOfSubscriber(models.Model):
     lastName = models.CharField(max_length=100, null=True, blank=True)
     firstName = models.CharField(max_length=100, null=True, blank=True)
     smartcards = models.JSONField(null=True, blank=True)
-    hcId = models.CharField(max_length=100, null=True, blank=True)
-    hcName = models.CharField(max_length=100, null=True, blank=True)
-    country = models.CharField(max_length=100, null=True, blank=True)
-    city = models.CharField(max_length=100, null=True, blank=True)
-    zip = models.CharField(max_length=20, null=True, blank=True)
-    address = models.CharField(max_length=255, null=True, blank=True)
     created = models.DateTimeField(null=True, blank=True)  # Cambiado de DateField a DateTimeField
-    modified = models.DateField(null=True, blank=True)
     
     # Nuevos campos de información extendida
     regionId = models.IntegerField(null=True, blank=True)
@@ -27,16 +20,13 @@ class ListOfSubscriber(models.Model):
     comment = models.TextField(null=True, blank=True)
     ip = models.GenericIPAddressField(null=True, blank=True)
     
-    # Contactos (JSON para almacenar listas)
-    emails = models.JSONField(null=True, blank=True)  # Lista de emails
-    phones = models.JSONField(null=True, blank=True)  # Lista de teléfonos
+    # Contactos
+    emails = models.EmailField(null=True, blank=True, db_index=True)  # Email principal (primer email de la lista)
+    phones = models.CharField(null=True, blank=True)  # Lista de teléfonos
     faxes = models.JSONField(null=True, blank=True)
     skypes = models.JSONField(null=True, blank=True)
     mobiles = models.JSONField(null=True, blank=True)
     custodians = models.JSONField(null=True, blank=True)
-    
-    # Campo extraído para búsqueda rápida (primer email)
-    primary_email = models.EmailField(null=True, blank=True, db_index=True)
     
     # Direcciones (JSON)
     address1 = models.JSONField(null=True, blank=True)
@@ -54,18 +44,8 @@ class ListOfSubscriber(models.Model):
     class Meta:
         indexes = [
             models.Index(fields=['code']),
-            models.Index(fields=['primary_email']),
-            # Índice compuesto para búsquedas comunes
-            models.Index(fields=['code', 'primary_email']),
+            models.Index(fields=['emails']),
         ]
-    
-    def save(self, *args, **kwargs):
-        # Extraer primary_email de la lista de emails
-        if self.emails and isinstance(self.emails, list) and len(self.emails) > 0:
-            self.primary_email = self.emails[0].lower().strip() if self.emails[0] else None
-        elif self.emails is None or (isinstance(self.emails, list) and len(self.emails) == 0):
-            self.primary_email = None
-        super().save(*args, **kwargs)
 
     def __str__(self):
         """Representación string del suscriptor."""

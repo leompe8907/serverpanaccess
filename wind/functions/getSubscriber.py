@@ -96,15 +96,21 @@ def fetch_all_subscribers(session_id=None, limit=100):
     
     while True:
         result = CallListExtendedSubscribers(session_id, offset, limit)
-        rows = result.get("rows", [])
+        rows = result.get("subscriberEntries") or result.get("rows", [])
         if not rows:
             break
         
         for row in rows:
+            # Validar que tenga subscriberCode
+            subscriber_code = row.get("subscriberCode")
+            if not subscriber_code:
+                logger.warning(f"Suscriptor sin código, omitiendo: {row.get('firstName', 'N/A')} {row.get('lastName', 'N/A')}")
+                continue
+            
             # Procesar cada suscriptor extendido
             subscriber_data = {
-                "id": row.get("subscriberCode", ""),  # Usar subscriberCode como id
-                "code": row.get("subscriberCode"),
+                "id": subscriber_code,  # Usar subscriberCode como id
+                "code": subscriber_code,
                 "lastName": row.get("lastName"),
                 "firstName": row.get("firstName"),
                 "smartcards": row.get("smartcards"),
@@ -197,14 +203,33 @@ def store_all_subscribers_in_chunks(data_batch, chunk_size=100):
     if total == 0:
         return
     logger.info(f"Almacenando {total} suscriptores")
+    
+    total_inserted = 0
+    total_errors = 0
+    
     for i in range(0, total, chunk_size):
         chunk = data_batch[i:i + chunk_size]
-        try:
-            registros = [ListOfSubscriber(**item) for item in chunk]
-            ListOfSubscriber.objects.bulk_create(registros, ignore_conflicts=True)
-        except Exception as e:
-            logger.error(f"Error insertando chunk {i//chunk_size + 1}: {str(e)}")
-    logger.info(f"Almacenados {total} suscriptores")
+        valid_objects = []
+        
+        for item in chunk:
+            # Validar con serializer
+            serializer = ListOfSubscriberSerializer(data=item)
+            if serializer.is_valid():
+                valid_objects.append(ListOfSubscriber(**serializer.validated_data))
+            else:
+                total_errors += 1
+                logger.warning(f"Error validando suscriptor {item.get('code', 'N/A')}: {serializer.errors}")
+        
+        if valid_objects:
+            try:
+                created = ListOfSubscriber.objects.bulk_create(valid_objects, ignore_conflicts=True)
+                total_inserted += len(created)
+            except Exception as e:
+                logger.error(f"Error insertando chunk {i//chunk_size + 1}: {str(e)}")
+                total_errors += len(valid_objects)
+    
+    logger.info(f"Almacenados {total_inserted} suscriptores, {total_errors} errores")
+    return total_inserted, total_errors
 
 def download_subscribers_since_last(session_id=None, limit=100):
     """
@@ -232,13 +257,14 @@ def download_subscribers_since_last(session_id=None, limit=100):
     
     while True:
         result = CallListExtendedSubscribers(session_id, offset, limit)
-        rows = result.get("rows", [])
+        rows = result.get("subscriberEntries") or result.get("rows", [])
         if not rows:
             break
         
         for row in rows:
             code = row.get("subscriberCode")
             if not code:
+                logger.warning(f"Suscriptor sin código, omitiendo: {row.get('firstName', 'N/A')} {row.get('lastName', 'N/A')}")
                 continue
             
             if code == highest_code:
@@ -247,7 +273,7 @@ def download_subscribers_since_last(session_id=None, limit=100):
             
             # Procesar cada suscriptor extendido
             subscriber_data = {
-                "id": code,
+                "id": code,  # Usar subscriberCode como id
                 "code": code,
                 "lastName": row.get("lastName"),
                 "firstName": row.get("firstName"),
@@ -367,7 +393,7 @@ def compare_and_update_all_subscribers(session_id=None, limit=100):
     
     while True:
         response = CallListExtendedSubscribers(session_id, offset, limit)
-        remote_list = response.get("rows", [])
+        remote_list = response.get("subscriberEntries") or response.get("rows", [])
         if not remote_list:
             break
             
@@ -583,7 +609,8 @@ def CallListExtendedSubscribers(session_id=None, offset=0, limit=100):
             'usePrefixFlags': True,
             'offset': offset,
             'limit': limit,
-            'orderBy': 'code',
+            "orderBy": "code",
+            "orderDir": "DESC"
         }
         response = panaccess.call('getListOfExtendedSubscribers', parameters)
 

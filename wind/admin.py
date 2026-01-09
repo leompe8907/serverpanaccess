@@ -11,19 +11,18 @@ class ListOfSubscriberAdmin(admin.ModelAdmin):
         'id',
         'code',
         'full_name_display',
-        'hcId',
-        'country',
-        'city',
+        'countryCode',
+        'regionId',
         'smartcards_display',
         'created',
-        'modified',
+        'emails_display',
     ]
     
     list_filter = [
-        'country',
-        'hcId',
+        'countryCode',
+        'regionId',
         'created',
-        'modified',
+        'newsletterAccepted',
     ]
     
     search_fields = [
@@ -31,11 +30,8 @@ class ListOfSubscriberAdmin(admin.ModelAdmin):
         'code',
         'firstName',
         'lastName',
-        'hcId',
-        'hcName',
-        'country',
-        'city',
-        'zip',
+        'countryCode',
+        'emails',
     ]
     
     readonly_fields = [
@@ -49,14 +45,20 @@ class ListOfSubscriberAdmin(admin.ModelAdmin):
         ('Smartcards', {
             'fields': ('smartcards',)
         }),
-        ('Headend', {
-            'fields': ('hcId', 'hcName')
+        ('Información Extendida', {
+            'fields': ('regionId', 'countryCode', 'caf', 'supervisor', 'comment', 'ip')
         }),
-        ('Ubicación', {
-            'fields': ('country', 'city', 'zip', 'address')
+        ('Contactos', {
+            'fields': ('emails', 'phones', 'faxes', 'skypes', 'mobiles', 'custodians')
+        }),
+        ('Direcciones', {
+            'fields': ('address1', 'address2', 'address3', 'addressCount')
+        }),
+        ('Información Adicional', {
+            'fields': ('newsletterAccepted', 'tags', 'uniqueLogin')
         }),
         ('Fechas', {
-            'fields': ('created', 'modified')
+            'fields': ('created', 'firstOrderTime', 'lastExpiryTime')
         }),
     )
     
@@ -75,4 +77,9 @@ class ListOfSubscriberAdmin(admin.ModelAdmin):
             return len(obj.smartcards)
         return 0
     smartcards_display.short_description = 'Smartcards'
+    
+    def emails_display(self, obj):
+        """Muestra el email o 'Sin email'."""
+        return obj.emails or 'Sin email'
+    emails_display.short_description = 'Email'
 

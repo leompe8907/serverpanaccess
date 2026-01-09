@@ -95,15 +95,21 @@ def create_subscriber_view(request):
     
     # Validar email en BD local de suscriptores (validación rápida desde PanAccess)
     from wind.models import ListOfSubscriber
-    if ListOfSubscriber.objects.filter(primary_email__iexact=email_normalized).exists():
-        return Response({
-            'success': False,
-            'message': 'Este email ya está registrado en otro suscriptor',
-            'error_type': 'EmailAlreadyInUse',
-            'errors': {
-                'email': ['Este email ya está en uso por otro suscriptor en PanAccess.']
-            }
-        }, status=status.HTTP_400_BAD_REQUEST)
+    # Buscar en el campo JSON emails
+    subscribers_with_email = ListOfSubscriber.objects.filter(emails__isnull=False)
+    for subscriber in subscribers_with_email:
+        if subscriber.emails and isinstance(subscriber.emails, list):
+            # Normalizar emails en el array y comparar
+            normalized_emails = [e.lower().strip() if e else None for e in subscriber.emails]
+            if email_normalized in normalized_emails:
+                return Response({
+                    'success': False,
+                    'message': 'Este email ya está registrado en otro suscriptor',
+                    'error_type': 'EmailAlreadyInUse',
+                    'errors': {
+                        'email': ['Este email ya está en uso por otro suscriptor en PanAccess.']
+                    }
+                }, status=status.HTTP_400_BAD_REQUEST)
     
     try:
         # Determinar el código del suscriptor
