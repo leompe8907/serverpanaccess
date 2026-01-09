@@ -6,7 +6,10 @@ Este módulo exporta todas las funciones organizadas por archivo.
 from wind.functions.login import login
 from wind.functions.singleton import singleton
 from wind.functions.logged_in import logged_in_view
-from wind.functions.sync_subscribers import sync_subscribers_view
+from wind.functions.sync_subscribers import (
+    sync_subscribers_view,
+    compare_and_update_subscribers_view
+)
 from wind.functions.sync_products import (
     sync_products_view,
     test_call_list_products,
@@ -55,6 +58,7 @@ __all__ = [
     'singleton',
     'logged_in_view',
     'sync_subscribers_view',
+    'compare_and_update_subscribers_view',
     'sync_smartcards',
     'fetch_all_smartcards',
     'download_smartcards_since_last',

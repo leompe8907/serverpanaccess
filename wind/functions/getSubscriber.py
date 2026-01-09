@@ -1,6 +1,12 @@
 import logging
 from django.db import transaction
-from wind.models import ListOfSubscriber
+from wind.models import (
+    ListOfSubscriber,
+    SubscriberLoginInfo,
+    SubscriberEmailRegistry,
+    SubscriberDocumentRegistry,
+    SubscriberInfo
+)
 from wind.serializers import ListOfSubscriberSerializer
 
 from wind.services import get_panaccess
@@ -66,6 +72,48 @@ def DataBaseEmpty():
     Verifica si la tabla ListOfSubscriber está vacía.
     """
     return not ListOfSubscriber.objects.exists()
+
+def delete_subscriber_credentials(subscriber_codes):
+    """
+    Elimina todas las credenciales relacionadas con los códigos de suscriptores proporcionados.
+    
+    Args:
+        subscriber_codes: Lista o conjunto de códigos de suscriptores a eliminar
+    
+    Returns:
+        Diccionario con estadísticas de eliminación
+    """
+    if not subscriber_codes:
+        return {
+            'login_info': 0,
+            'email_registry': 0,
+            'document_registry': 0,
+            'subscriber_info': 0
+        }
+    
+    codes_list = list(subscriber_codes) if isinstance(subscriber_codes, set) else subscriber_codes
+    
+    # Eliminar SubscriberLoginInfo
+    login_info_deleted = SubscriberLoginInfo.objects.filter(subscriberCode__in=codes_list).delete()[0]
+    
+    # Eliminar SubscriberEmailRegistry
+    email_registry_deleted = SubscriberEmailRegistry.objects.filter(subscriber_code__in=codes_list).delete()[0]
+    
+    # Eliminar SubscriberDocumentRegistry
+    document_registry_deleted = SubscriberDocumentRegistry.objects.filter(subscriber_code__in=codes_list).delete()[0]
+    
+    # Eliminar SubscriberInfo
+    subscriber_info_deleted = SubscriberInfo.objects.filter(subscriber_code__in=codes_list).delete()[0]
+    
+    logger.info(f"Credenciales eliminadas - LoginInfo: {login_info_deleted}, EmailRegistry: {email_registry_deleted}, "
+                f"DocumentRegistry: {document_registry_deleted}, SubscriberInfo: {subscriber_info_deleted}")
+    
+    return {
+        'login_info': login_info_deleted,
+        'email_registry': email_registry_deleted,
+        'document_registry': document_registry_deleted,
+        'subscriber_info': subscriber_info_deleted
+    }
 
 def LastSubscriber():
     """
@@ -469,28 +517,22 @@ def download_subscribers_since_last(session_id=None, limit=100):
 
 def compare_and_update_all_subscribers(session_id=None, limit=100):
     """
-    Compara todos los suscriptores extendidos de Panaccess con los de la base local:
-    - Actualiza los existentes si hay diferencias
-    - Elimina los que ya no existen en PanAccess
+    Compara todos los suscriptores extendidos de Panaccess con los de la base local.
+    
+    Flujo:
+    1. Descarga todos los suscriptores de PanAccess (procesando por lotes)
+    2. Compara la cantidad total usando el parámetro 'count' de la API
+    3. Si las cantidades son iguales: compara registro por registro y actualiza los diferentes
+    4. Si PanAccess tiene menos registros: elimina los registros de más (incluyendo credenciales)
     
     Args:
         session_id: ID de sesión (opcional, se usa el singleton si no se proporciona)
         limit: Cantidad máxima de registros por página
     
     Returns:
-        Diccionario con estadísticas: {'updated': int, 'deleted': int}
+        Diccionario con estadísticas: {'updated': int, 'deleted': int, 'credentials_deleted': dict}
     """
-    logger.info("Actualizando suscriptores existentes y eliminando los que ya no existen en PanAccess")
-    
-    # Obtener todos los códigos locales
-    local_data = {
-        obj.code: obj for obj in ListOfSubscriber.objects.all() if obj.code
-    }
-    
-    # Obtener todos los códigos remotos desde PanAccess
-    remote_codes = set()
-    offset = 0
-    total_updated = 0
+    logger.info("Comparando y actualizando suscriptores desde PanAccess")
     
     try:
         from dateutil import parser
@@ -498,135 +540,185 @@ def compare_and_update_all_subscribers(session_id=None, limit=100):
         logger.warning("python-dateutil no está instalado, las fechas pueden no parsearse correctamente")
         parser = None
     
+    # 1. Primera llamada para obtener count total de PanAccess
+    first_result = CallListExtendedSubscribers(session_id, 0, limit)
+    remote_total_count = first_result.get('count', 0)
+    local_total_count = ListOfSubscriber.objects.count()
+    
+    logger.info(f"Total PanAccess: {remote_total_count}, Total Local: {local_total_count}")
+    
+    # Obtener todos los códigos locales (una sola vez)
+    local_data = {
+        obj.code: obj for obj in ListOfSubscriber.objects.all() if obj.code
+    }
+    
+    # 2. Procesar por lotes: descargar → comparar → actualizar
+    remote_codes = set()
+    offset = 0
+    total_updated = 0
+    
+    def process_subscriber_row(row, local_data_dict):
+        """Procesa una fila de suscriptor: compara y actualiza si es necesario."""
+        code = row.get("subscriberCode")
+        if not code:
+            return False
+        
+        remote_codes.add(code)
+        
+        # Si existe localmente, comparar y actualizar
+        if code in local_data_dict:
+            local_obj = local_data_dict[code]
+            changed_fields = []
+            
+            # Mapear campos del formato extendido
+            field_mapping = {
+                "lastName": row.get("lastName"),
+                "firstName": row.get("firstName"),
+                "smartcards": row.get("smartcards"),
+                "regionId": row.get("regionId"),
+                "countryCode": row.get("countryCode"),
+                "caf": row.get("caf"),
+                "supervisor": row.get("supervisor"),
+                "comment": row.get("comment"),
+                "ip": row.get("ip"),
+                "emails": extract_first_email(row.get("emails")),
+                "phones": extract_first_phone(row.get("phones")),
+                "faxes": row.get("faxes"),
+                "skypes": row.get("skypes"),
+                "mobiles": row.get("mobiles"),
+                "custodians": row.get("custodians"),
+                "address1": row.get("address1"),
+                "address2": row.get("address2"),
+                "address3": row.get("address3"),
+                "addressCount": row.get("addressCount", 0),
+                "newsletterAccepted": row.get("newsletterAccepted", False),
+                "tags": row.get("tags"),
+                "uniqueLogin": row.get("uniqueLogin"),
+            }
+            
+            # Procesar fechas
+            if row.get("created"):
+                try:
+                    if parser:
+                        field_mapping["created"] = parser.parse(row.get("created"))
+                    else:
+                        field_mapping["created"] = row.get("created")
+                except Exception as e:
+                    logger.warning(f"Error parseando fecha created: {e}")
+                    field_mapping["created"] = None
+            else:
+                field_mapping["created"] = None
+            
+            if row.get("firstOrderTime"):
+                try:
+                    if parser:
+                        field_mapping["firstOrderTime"] = parser.parse(row.get("firstOrderTime"))
+                    else:
+                        field_mapping["firstOrderTime"] = row.get("firstOrderTime")
+                except Exception as e:
+                    logger.warning(f"Error parseando fecha firstOrderTime: {e}")
+                    field_mapping["firstOrderTime"] = None
+            else:
+                field_mapping["firstOrderTime"] = None
+            
+            if row.get("lastExpiryTime"):
+                try:
+                    if parser:
+                        field_mapping["lastExpiryTime"] = parser.parse(row.get("lastExpiryTime"))
+                    else:
+                        field_mapping["lastExpiryTime"] = row.get("lastExpiryTime")
+                except Exception as e:
+                    logger.warning(f"Error parseando fecha lastExpiryTime: {e}")
+                    field_mapping["lastExpiryTime"] = None
+            else:
+                field_mapping["lastExpiryTime"] = None
+            
+            # Comparar y actualizar campos
+            for key, val in field_mapping.items():
+                if hasattr(local_obj, key):
+                    local_val = getattr(local_obj, key)
+                    if isinstance(local_val, list) and isinstance(val, list):
+                        if local_val != val:
+                            setattr(local_obj, key, val)
+                            changed_fields.append(key)
+                    elif isinstance(local_val, dict) and isinstance(val, dict):
+                        if local_val != val:
+                            setattr(local_obj, key, val)
+                            changed_fields.append(key)
+                    elif str(local_val) != str(val):
+                        setattr(local_obj, key, val)
+                        changed_fields.append(key)
+            
+            if changed_fields:
+                try:
+                    local_obj.save(update_fields=changed_fields)
+                    return True
+                except Exception as e:
+                    logger.error(f"Error actualizando código {code}: {str(e)}")
+                    return False
+        
+        return False
+    
+    # Procesar todos los lotes
     while True:
         response = CallListExtendedSubscribers(session_id, offset, limit)
         remote_list = response.get("extendedSubscriberEntries") or response.get("subscriberEntries") or response.get("rows", [])
         if not remote_list:
             break
-            
+        
+        # Procesar este lote: comparar y actualizar
         for row in remote_list:
-            code = row.get("subscriberCode")
-            
-            # Agregar código a la lista de remotos
-            remote_codes.add(code)
-            
-            # Si existe localmente, actualizarlo
-            if code in local_data:
-                local_obj = local_data[code]
-                changed_fields = []
-                
-                # Mapear campos del formato extendido
-                field_mapping = {
-                    "lastName": row.get("lastName"),
-                    "firstName": row.get("firstName"),
-                    "smartcards": row.get("smartcards"),
-                    "regionId": row.get("regionId"),
-                    "countryCode": row.get("countryCode"),
-                    "caf": row.get("caf"),
-                    "supervisor": row.get("supervisor"),
-                    "comment": row.get("comment"),
-                    "ip": row.get("ip"),
-                    "emails": extract_first_email(row.get("emails")),
-                    "phones": extract_first_phone(row.get("phones")),
-                    "faxes": row.get("faxes"),
-                    "skypes": row.get("skypes"),
-                    "mobiles": row.get("mobiles"),
-                    "custodians": row.get("custodians"),
-                    "address1": row.get("address1"),
-                    "address2": row.get("address2"),
-                    "address3": row.get("address3"),
-                    "addressCount": row.get("addressCount", 0),
-                    "newsletterAccepted": row.get("newsletterAccepted", False),
-                    "tags": row.get("tags"),
-                    "uniqueLogin": row.get("uniqueLogin"),
-                }
-                
-                # Procesar fechas
-                if row.get("created"):
-                    try:
-                        if parser:
-                            field_mapping["created"] = parser.parse(row.get("created"))
-                        else:
-                            field_mapping["created"] = row.get("created")
-                    except Exception as e:
-                        logger.warning(f"Error parseando fecha created: {e}")
-                        field_mapping["created"] = None
-                else:
-                    field_mapping["created"] = None
-                
-                if row.get("firstOrderTime"):
-                    try:
-                        if parser:
-                            field_mapping["firstOrderTime"] = parser.parse(row.get("firstOrderTime"))
-                        else:
-                            field_mapping["firstOrderTime"] = row.get("firstOrderTime")
-                    except Exception as e:
-                        logger.warning(f"Error parseando fecha firstOrderTime: {e}")
-                        field_mapping["firstOrderTime"] = None
-                else:
-                    field_mapping["firstOrderTime"] = None
-                
-                if row.get("lastExpiryTime"):
-                    try:
-                        if parser:
-                            field_mapping["lastExpiryTime"] = parser.parse(row.get("lastExpiryTime"))
-                        else:
-                            field_mapping["lastExpiryTime"] = row.get("lastExpiryTime")
-                    except Exception as e:
-                        logger.warning(f"Error parseando fecha lastExpiryTime: {e}")
-                        field_mapping["lastExpiryTime"] = None
-                else:
-                    field_mapping["lastExpiryTime"] = None
-                
-                # Comparar y actualizar campos
-                for key, val in field_mapping.items():
-                    if hasattr(local_obj, key):
-                        local_val = getattr(local_obj, key)
-                        if isinstance(local_val, list) and isinstance(val, list):
-                            if local_val != val:
-                                setattr(local_obj, key, val)
-                                changed_fields.append(key)
-                        elif isinstance(local_val, dict) and isinstance(val, dict):
-                            if local_val != val:
-                                setattr(local_obj, key, val)
-                                changed_fields.append(key)
-                        elif str(local_val) != str(val):
-                            setattr(local_obj, key, val)
-                            changed_fields.append(key)
-                
-                if changed_fields:
-                    try:
-                        local_obj.save(update_fields=changed_fields)
-                        total_updated += 1
-                        
-                        if fetch_login_info_for_subscriber and code:
-                            try:
-                                fetch_login_info_for_subscriber(session_id, code)
-                            except Exception:
-                                pass
-                    except Exception as e:
-                        logger.error(f"Error actualizando código {code}: {str(e)}")
+            if process_subscriber_row(row, local_data):
+                total_updated += 1
         
         offset += limit
     
-    # Eliminar los que están en local pero no en PanAccess
-    local_codes = set(local_data.keys())
-    codes_to_delete = local_codes - remote_codes
+    # 3. Si las cantidades son iguales, ya terminamos (solo actualizaciones)
+    if remote_total_count == local_total_count:
+        logger.info(f"Actualizados {total_updated} suscriptores. Cantidades iguales, no hay eliminaciones.")
+        return {
+            'updated': total_updated,
+            'deleted': 0,
+            'credentials_deleted': {}
+        }
     
-    total_deleted = 0
-    if codes_to_delete:
-        try:
-            deleted_count = ListOfSubscriber.objects.filter(code__in=codes_to_delete).delete()[0]
-            total_deleted = deleted_count
-            logger.info(f"Eliminados {total_deleted} suscriptores que ya no existen en PanAccess: {list(codes_to_delete)}")
-        except Exception as e:
-            logger.error(f"Error eliminando suscriptores: {str(e)}")
+    # 4. Si PanAccess tiene menos registros, eliminar los de más
+    elif remote_total_count < local_total_count:
+        logger.info(f"PanAccess tiene menos registros ({remote_total_count} < {local_total_count}). Eliminando registros de más...")
+        
+        local_codes = set(local_data.keys())
+        codes_to_delete = local_codes - remote_codes
+        
+        total_deleted = 0
+        credentials_deleted = {}
+        
+        if codes_to_delete:
+            try:
+                # Eliminar credenciales primero
+                credentials_deleted = delete_subscriber_credentials(codes_to_delete)
+                
+                # Eliminar suscriptores
+                deleted_count = ListOfSubscriber.objects.filter(code__in=codes_to_delete).delete()[0]
+                total_deleted = deleted_count
+                logger.info(f"Eliminados {total_deleted} suscriptores que ya no existen en PanAccess: {list(codes_to_delete)[:10]}...")
+            except Exception as e:
+                logger.error(f"Error eliminando suscriptores: {str(e)}")
+        
+        logger.info(f"Actualizados {total_updated} suscriptores, eliminados {total_deleted} suscriptores")
+        return {
+            'updated': total_updated,
+            'deleted': total_deleted,
+            'credentials_deleted': credentials_deleted
+        }
     
-    logger.info(f"Actualizados {total_updated} suscriptores, eliminados {total_deleted} suscriptores")
-    return {
-        'updated': total_updated,
-        'deleted': total_deleted
-    }
+    # Si PanAccess tiene más (caso inesperado, pero manejable)
+    else:
+        logger.warning(f"PanAccess tiene más registros ({remote_total_count} > {local_total_count}). Solo se actualizaron los existentes.")
+        return {
+            'updated': total_updated,
+            'deleted': 0,
+            'credentials_deleted': {}
+        }
 
 def sync_subscribers(session_id=None, limit=100):
     """
@@ -648,7 +740,6 @@ def sync_subscribers(session_id=None, limit=100):
             return fetch_all_subscribers(session_id, limit)
         else:
             new_result = download_subscribers_since_last(session_id, limit)
-            compare_and_update_all_subscribers(session_id, limit)
             return new_result
 
     except PanAccessException as e:

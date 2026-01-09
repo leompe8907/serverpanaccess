@@ -4,6 +4,7 @@ from wind.functions import (
     singleton,
     logged_in_view,
     sync_subscribers_view,
+    compare_and_update_subscribers_view,
     sync_products_view,
     test_call_list_products,
     products_stats_view,
@@ -21,9 +22,16 @@ urlpatterns = [
     
     # Sincronización de suscriptores
     # Valida automáticamente la BD: si está vacía hace descarga completa,
-    # si tiene datos hace descarga incremental + actualización
+    # si tiene datos hace descarga incremental
     # Parámetros: limit (opcional, default: 100, máximo: 1000)
     path('sync-subscribers/', sync_subscribers_view, name='sync_subscribers'),
+    
+    # Comparar y actualizar suscriptores
+    # Compara todos los suscriptores de PanAccess con los locales:
+    # - Si cantidades iguales: actualiza los diferentes
+    # - Si PanAccess tiene menos: elimina los de más (con credenciales)
+    # Parámetros: limit (opcional, default: 100, máximo: 1000)
+    path('compare-and-update-subscribers/', compare_and_update_subscribers_view, name='compare_and_update_subscribers'),
     
     # Endpoints de productos
     # Sincronización: valida automáticamente la BD y descarga según corresponda
