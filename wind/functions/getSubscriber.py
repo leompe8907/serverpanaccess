@@ -84,6 +84,7 @@ def delete_subscriber_credentials(subscriber_codes):
         Diccionario con estadísticas de eliminación
     """
     if not subscriber_codes:
+        logger.info("delete_subscriber_credentials: No hay códigos para eliminar")
         return {
             'login_info': 0,
             'email_registry': 0,
@@ -92,6 +93,24 @@ def delete_subscriber_credentials(subscriber_codes):
         }
     
     codes_list = list(subscriber_codes) if isinstance(subscriber_codes, set) else subscriber_codes
+    
+    # Filtrar códigos vacíos o None
+    codes_list = [code for code in codes_list if code]
+    
+    if not codes_list:
+        logger.warning("delete_subscriber_credentials: Todos los códigos están vacíos o son None")
+        return {
+            'login_info': 0,
+            'email_registry': 0,
+            'document_registry': 0,
+            'subscriber_info': 0
+        }
+    
+    logger.info(f"delete_subscriber_credentials: Eliminando credenciales para {len(codes_list)} códigos: {codes_list[:10]}...")
+    
+    # Verificar cuántos registros hay antes de eliminar
+    email_count_before = SubscriberEmailRegistry.objects.filter(subscriber_code__in=codes_list).count()
+    logger.info(f"delete_subscriber_credentials: Encontrados {email_count_before} registros en SubscriberEmailRegistry antes de eliminar")
     
     # Eliminar SubscriberLoginInfo
     login_info_deleted = SubscriberLoginInfo.objects.filter(subscriberCode__in=codes_list).delete()[0]
@@ -104,6 +123,19 @@ def delete_subscriber_credentials(subscriber_codes):
     
     # Eliminar SubscriberInfo
     subscriber_info_deleted = SubscriberInfo.objects.filter(subscriber_code__in=codes_list).delete()[0]
+    
+    # Verificar que se eliminaron correctamente
+    email_count_after = SubscriberEmailRegistry.objects.filter(subscriber_code__in=codes_list).count()
+    if email_count_after > 0:
+        logger.warning(f"delete_subscriber_credentials: ADVERTENCIA - Aún quedan {email_count_after} registros en SubscriberEmailRegistry después de eliminar")
+        # Intentar eliminar nuevamente con un filtro más específico
+        remaining_emails = SubscriberEmailRegistry.objects.filter(subscriber_code__in=codes_list)
+        logger.warning(f"delete_subscriber_credentials: Registros restantes: {list(remaining_emails.values_list('subscriber_code', 'email')[:10])}")
+        # Eliminar manualmente los restantes
+        additional_deleted = remaining_emails.delete()[0]
+        if additional_deleted > 0:
+            email_registry_deleted += additional_deleted
+            logger.info(f"delete_subscriber_credentials: Eliminados {additional_deleted} registros adicionales de SubscriberEmailRegistry")
     
     logger.info(f"Credenciales eliminadas - LoginInfo: {login_info_deleted}, EmailRegistry: {email_registry_deleted}, "
                 f"DocumentRegistry: {document_registry_deleted}, SubscriberInfo: {subscriber_info_deleted}")

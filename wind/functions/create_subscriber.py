@@ -180,6 +180,149 @@ def create_subscriber_view(request):
         
         logger.info(f"Suscriptor {subscriber_code} creado exitosamente")
         
+        # Obtener información completa del suscriptor desde PanAccess para guardarlo en la BD local
+        subscriber_data_for_db = None
+        smartcards_list = None
+        
+        try:
+            logger.info(f"[DB] Obteniendo información completa del suscriptor {subscriber_code} desde PanAccess")
+            
+            # Intentar obtener el suscriptor desde getListOfExtendedSubscribers
+            # Buscar en los primeros registros (el suscriptor recién creado debería estar al inicio)
+            from wind.functions.getSubscriber import CallListExtendedSubscribers, extract_first_email, extract_first_phone
+            
+            # Intentar importar parser de fechas
+            try:
+                from dateutil import parser
+                parser_instance = parser
+            except ImportError:
+                logger.warning("[DB] python-dateutil no está instalado, las fechas pueden no parsearse correctamente")
+                parser_instance = None
+            
+            # Buscar el suscriptor en los primeros lotes
+            found_subscriber = None
+            offset = 0
+            limit = 100
+            max_search = 3  # Buscar en los primeros 3 lotes (300 registros)
+            
+            for i in range(max_search):
+                result = CallListExtendedSubscribers(session_id=None, offset=offset, limit=limit)
+                rows = result.get("extendedSubscriberEntries") or result.get("subscriberEntries") or result.get("rows", [])
+                
+                for row in rows:
+                    if row.get("subscriberCode") == subscriber_code:
+                        found_subscriber = row
+                        break
+                
+                if found_subscriber:
+                    break
+                
+                offset += limit
+            
+            if found_subscriber:
+                logger.info(f"[DB] Suscriptor {subscriber_code} encontrado en PanAccess")
+                
+                # Obtener smartcards asociadas
+                smartcards_list = found_subscriber.get("smartcards")
+                if smartcards_list:
+                    logger.info(f"[DB] Encontradas {len(smartcards_list) if isinstance(smartcards_list, list) else 'N/A'} smartcards asociadas")
+                else:
+                    logger.info(f"[DB] No se encontraron smartcards asociadas al suscriptor")
+                
+                # Preparar datos para guardar en la BD
+                subscriber_data_for_db = {
+                    "id": subscriber_code,
+                    "code": subscriber_code,
+                    "lastName": found_subscriber.get("lastName"),
+                    "firstName": found_subscriber.get("firstName"),
+                    "smartcards": smartcards_list,  # Lista de smartcards
+                    "regionId": found_subscriber.get("regionId"),
+                    "countryCode": found_subscriber.get("countryCode"),
+                    "caf": found_subscriber.get("caf"),
+                    "supervisor": found_subscriber.get("supervisor", "AUTOMATICO"),
+                    "comment": found_subscriber.get("comment"),
+                    "ip": found_subscriber.get("ip"),
+                    "emails": extract_first_email(found_subscriber.get("emails")),
+                    "phones": extract_first_phone(found_subscriber.get("phones")),
+                    "faxes": found_subscriber.get("faxes"),
+                    "skypes": found_subscriber.get("skypes"),
+                    "mobiles": found_subscriber.get("mobiles"),
+                    "custodians": found_subscriber.get("custodians"),
+                    "address1": found_subscriber.get("address1"),
+                    "address2": found_subscriber.get("address2"),
+                    "address3": found_subscriber.get("address3"),
+                    "addressCount": found_subscriber.get("addressCount", 0),
+                    "newsletterAccepted": found_subscriber.get("newsletterAccepted", False),
+                    "tags": found_subscriber.get("tags"),
+                    "uniqueLogin": found_subscriber.get("uniqueLogin"),
+                }
+                
+                # Procesar fechas
+                if found_subscriber.get("created"):
+                    try:
+                        if parser_instance:
+                            subscriber_data_for_db["created"] = parser_instance.parse(found_subscriber.get("created"))
+                        else:
+                            subscriber_data_for_db["created"] = found_subscriber.get("created")
+                    except Exception as e:
+                        logger.warning(f"[DB] Error parseando fecha created: {e}")
+                        subscriber_data_for_db["created"] = timezone.now()
+                else:
+                    subscriber_data_for_db["created"] = timezone.now()
+                
+                if found_subscriber.get("firstOrderTime"):
+                    try:
+                        if parser_instance:
+                            subscriber_data_for_db["firstOrderTime"] = parser_instance.parse(found_subscriber.get("firstOrderTime"))
+                        else:
+                            subscriber_data_for_db["firstOrderTime"] = found_subscriber.get("firstOrderTime")
+                    except Exception as e:
+                        logger.warning(f"[DB] Error parseando fecha firstOrderTime: {e}")
+                        subscriber_data_for_db["firstOrderTime"] = None
+                else:
+                    subscriber_data_for_db["firstOrderTime"] = None
+                
+                if found_subscriber.get("lastExpiryTime"):
+                    try:
+                        if parser_instance:
+                            subscriber_data_for_db["lastExpiryTime"] = parser_instance.parse(found_subscriber.get("lastExpiryTime"))
+                        else:
+                            subscriber_data_for_db["lastExpiryTime"] = found_subscriber.get("lastExpiryTime")
+                    except Exception as e:
+                        logger.warning(f"[DB] Error parseando fecha lastExpiryTime: {e}")
+                        subscriber_data_for_db["lastExpiryTime"] = None
+                else:
+                    subscriber_data_for_db["lastExpiryTime"] = None
+                
+                # Guardar en la base de datos local
+                try:
+                    from wind.serializers import ListOfSubscriberSerializer
+                    
+                    serializer = ListOfSubscriberSerializer(data=subscriber_data_for_db)
+                    if serializer.is_valid():
+                        subscriber_obj = serializer.save()
+                        logger.info(f"[DB] Suscriptor {subscriber_code} guardado exitosamente en ListOfSubscriber")
+                        logger.info(f"[DB] Smartcards guardadas: {smartcards_list}")
+                    else:
+                        logger.error(f"[DB] Error validando datos del suscriptor: {serializer.errors}")
+                        # Intentar guardar sin serializer si falla la validación
+                        try:
+                            ListOfSubscriber.objects.update_or_create(
+                                code=subscriber_code,
+                                defaults=subscriber_data_for_db
+                            )
+                            logger.info(f"[DB] Suscriptor {subscriber_code} guardado usando update_or_create")
+                        except Exception as e:
+                            logger.error(f"[DB] Error guardando suscriptor con update_or_create: {str(e)}", exc_info=True)
+                except Exception as e:
+                    logger.error(f"[DB] Error guardando suscriptor en BD: {str(e)}", exc_info=True)
+            else:
+                logger.warning(f"[DB] No se pudo encontrar el suscriptor {subscriber_code} en PanAccess después de crearlo")
+                
+        except Exception as e:
+            logger.error(f"[DB] Error obteniendo información del suscriptor desde PanAccess: {str(e)}", exc_info=True)
+            # Continuar aunque falle, el suscriptor ya está creado en PanAccess
+        
         # Registrar email en el registro de validación
         email_registry, email_created = SubscriberEmailRegistry.objects.update_or_create(
             email=email_normalized,
@@ -291,6 +434,56 @@ def create_subscriber_view(request):
             if license_response.get('success'):
                 license_block_success = True
                 logger.info(f"[LicenseBlock] License block agregado exitosamente al suscriptor {subscriber_code}")
+                
+                # Actualizar smartcards en la BD local después de addLicenseBlockToSubscriber
+                try:
+                    logger.info(f"[DB] Actualizando smartcards del suscriptor {subscriber_code} después de addLicenseBlockToSubscriber")
+                    
+                    # Obtener información actualizada del suscriptor desde PanAccess
+                    from wind.functions.getSubscriber import CallListExtendedSubscribers
+                    
+                    # Buscar el suscriptor actualizado
+                    found_subscriber_updated = None
+                    offset = 0
+                    limit = 100
+                    max_search = 3
+                    
+                    for i in range(max_search):
+                        result = CallListExtendedSubscribers(session_id=None, offset=offset, limit=limit)
+                        rows = result.get("extendedSubscriberEntries") or result.get("subscriberEntries") or result.get("rows", [])
+                        
+                        for row in rows:
+                            if row.get("subscriberCode") == subscriber_code:
+                                found_subscriber_updated = row
+                                break
+                        
+                        if found_subscriber_updated:
+                            break
+                        
+                        offset += limit
+                    
+                    if found_subscriber_updated:
+                        # Obtener smartcards actualizadas
+                        updated_smartcards = found_subscriber_updated.get("smartcards")
+                        logger.info(f"[DB] Smartcards actualizadas desde PanAccess: {updated_smartcards}")
+                        
+                        # Actualizar solo el campo smartcards en la BD local
+                        try:
+                            subscriber_obj = ListOfSubscriber.objects.get(code=subscriber_code)
+                            subscriber_obj.smartcards = updated_smartcards
+                            subscriber_obj.save(update_fields=['smartcards'])
+                            logger.info(f"[DB] Campo smartcards actualizado exitosamente para suscriptor {subscriber_code}")
+                            logger.info(f"[DB] Smartcards guardadas: {updated_smartcards}")
+                        except ListOfSubscriber.DoesNotExist:
+                            logger.warning(f"[DB] Suscriptor {subscriber_code} no encontrado en BD local para actualizar smartcards")
+                        except Exception as e:
+                            logger.error(f"[DB] Error actualizando smartcards en BD: {str(e)}", exc_info=True)
+                    else:
+                        logger.warning(f"[DB] No se pudo encontrar el suscriptor {subscriber_code} en PanAccess para actualizar smartcards")
+                        
+                except Exception as e:
+                    logger.error(f"[DB] Error obteniendo smartcards actualizadas: {str(e)}", exc_info=True)
+                    # No fallar el proceso completo si esto falla
             else:
                 license_block_error = license_response.get('errorMessage', 'Error desconocido')
                 logger.error(f"[LicenseBlock] Error al agregar license block: {license_block_error}")
