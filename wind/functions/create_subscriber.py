@@ -65,11 +65,10 @@ def create_subscriber_view(request):
         }, status=status.HTTP_400_BAD_REQUEST)
     
     data = serializer.validated_data
-    panaccess = get_panaccess()
+    logger.info(f"Datos recibidos y validados: {list(data.keys())}")
     
-    # VALIDACIÓN: Verificar email único
+    # 2. Validar campos requeridos
     email = data.get('email')
-    
     if not email:
         return Response({
             'success': False,
@@ -77,60 +76,59 @@ def create_subscriber_view(request):
             'errors': {'email': ['Este campo es requerido.']}
         }, status=status.HTTP_400_BAD_REQUEST)
     
-    # Normalizar email (minúsculas, sin espacios)
+    # Normalizar email
     email_normalized = email.lower().strip()
+    logger.info(f"Validando email normalizado: '{email_normalized}'")
     
-    # Validar si el email puede usarse para registro (tabla local de registros)
+    # 3. Validar code Y email en paralelo contra la base de datos
+    from wind.models import ListOfSubscriber
+    errors = {}
+    
+    # 3.1 Validar code (solo si se proporciona)
+    user_provided_code = data.get('code')
+    if user_provided_code and user_provided_code.strip():
+        subscriber_code_provided = user_provided_code.strip()
+        logger.info(f"Validando código proporcionado: '{subscriber_code_provided}'")
+        
+        if not validate_subscriber_code_uniqueness(subscriber_code_provided):
+            errors['code'] = [f'El código "{subscriber_code_provided}" ya está en uso. Por favor, elija otro.']
+            logger.warning(f"Código '{subscriber_code_provided}' ya existe en BD")
+    
+    # 3.2 Validar email (siempre)
+    # Primero en SubscriberEmailRegistry
     is_valid, validation_message, email_registry = validate_email_for_registration(email_normalized)
+    logger.info(f"Validación en SubscriberEmailRegistry: is_valid={is_valid}, message='{validation_message}'")
     
     if not is_valid:
+        errors['email'] = [validation_message]
+        logger.warning(f"Email '{email_normalized}' no válido según SubscriberEmailRegistry")
+    
+    # Luego en ListOfSubscriber
+    email_exists = ListOfSubscriber.objects.filter(emails__iexact=email_normalized).exists()
+    logger.info(f"Buscando email en ListOfSubscriber: '{email_normalized}', existe={email_exists}")
+    
+    if email_exists:
+        subscriber_with_email = ListOfSubscriber.objects.filter(emails__iexact=email_normalized).first()
+        logger.warning(f"Email '{email_normalized}' ya existe en suscriptor: code={subscriber_with_email.code if subscriber_with_email else 'N/A'}, id={subscriber_with_email.id if subscriber_with_email else 'N/A'}")
+        errors['email'] = ['Este email ya está en uso por otro suscriptor.']
+    
+    # 3.3 Si hay errores, detener el flujo
+    if errors:
         return Response({
             'success': False,
-            'message': validation_message,
-            'error_type': 'EmailAlreadyRegistered',
-            'errors': {
-                'email': [validation_message]
-            }
+            'message': 'Los parámetros proporcionados ya existen en la base de datos',
+            'error_type': 'DuplicateData',
+            'errors': errors
         }, status=status.HTTP_400_BAD_REQUEST)
     
-    # Validar email en BD local de suscriptores (validación rápida desde PanAccess)
-    from wind.models import ListOfSubscriber
-    # Buscar en el campo JSON emails
-    subscribers_with_email = ListOfSubscriber.objects.filter(emails__isnull=False)
-    for subscriber in subscribers_with_email:
-        if subscriber.emails and isinstance(subscriber.emails, list):
-            # Normalizar emails en el array y comparar
-            normalized_emails = [e.lower().strip() if e else None for e in subscriber.emails]
-            if email_normalized in normalized_emails:
-                return Response({
-                    'success': False,
-                    'message': 'Este email ya está registrado en otro suscriptor',
-                    'error_type': 'EmailAlreadyInUse',
-                    'errors': {
-                        'email': ['Este email ya está en uso por otro suscriptor en PanAccess.']
-                    }
-                }, status=status.HTTP_400_BAD_REQUEST)
-    
+    # 4. Si ambos son únicos (o code no se proporcionó y email es único), continuar
     try:
-        # Determinar el código del suscriptor
-        # Si el usuario proporciona un código (documento), validarlo y usarlo
-        # Si no, generar uno automáticamente con formato AUTO + número
-        user_provided_code = data.get('code')
+        panaccess = get_panaccess()
         
+        # Determinar el código del suscriptor
         if user_provided_code and user_provided_code.strip():
-            # Usuario proporcionó un código (documento), validarlo
             subscriber_code = user_provided_code.strip()
-            logger.info(f"Usuario proporcionó código (documento): {subscriber_code}")
-            
-            # Validar que el código sea único en PanAccess y BD local
-            if not validate_subscriber_code_uniqueness(subscriber_code):
-                return Response({
-                    'success': False,
-                    'message': f'El código de suscriptor "{subscriber_code}" ya existe',
-                    'errors': {'code': [f'El código "{subscriber_code}" ya está en uso. Por favor, elija otro.']}
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
-            logger.info(f"Código validado como único: {subscriber_code}")
+            logger.info(f"Usando código proporcionado: {subscriber_code}")
         else:
             # Generar código único automáticamente (formato AUTO + número)
             logger.info("Generando código único de suscriptor automáticamente...")
