@@ -56,8 +56,8 @@ class ListOfSubscriber(models.Model):
         return f"Suscriptor {self.code or self.id}"
 
 class ListOfSmartcards(models.Model):
-    sn = models.CharField(max_length=100, unique=True, null=True, blank=True)
-    subscriberCode = models.CharField(max_length=100, null=True, blank=True)
+    sn = models.CharField(max_length=100, unique=True, null=True, blank=True, db_index=True)
+    subscriberCode = models.CharField(max_length=100, null=True, blank=True, db_index=True)
     lastName = models.CharField(max_length=100, blank=True, null=True)
     firstName = models.CharField(max_length=100, blank=True, null=True)
     pin = models.CharField(max_length=100, null=True, blank=True)
@@ -91,6 +91,12 @@ class ListOfSmartcards(models.Model):
     model = models.CharField(max_length=100, null=True, blank=True)
     fingerprint = models.CharField(max_length=100, null=True, blank=True)
     hardware = models.CharField(max_length=100, null=True, blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['subscriberCode']),
+            models.Index(fields=['sn']),
+        ]
 
     def __str__(self):
         """Representación string de la smartcard."""

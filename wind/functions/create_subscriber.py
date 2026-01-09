@@ -268,6 +268,46 @@ def create_subscriber_view(request):
             # porque el suscriptor se creó correctamente
             response_data['message'] += '. Algunos contactos no pudieron agregarse.'
         
+        # Llamar a addLicenseBlockToSubscriber
+        license_block_success = False
+        license_block_error = None
+        
+        try:
+            logger.info(f"[LicenseBlock] Llamando addLicenseBlockToSubscriber para suscriptor: {subscriber_code}")
+            
+            # Parámetros según documentación:
+            # - sessionId: Se agrega automáticamente
+            # - code: Código del suscriptor
+            license_params = {
+                'code': subscriber_code
+            }
+            
+            logger.info(f"[LicenseBlock] Parámetros a enviar: {license_params}")
+            
+            license_response = panaccess.call('addLicenseBlockToSubscriber', license_params)
+            
+            logger.info(f"[LicenseBlock] Respuesta recibida - success={license_response.get('success')}")
+            
+            if license_response.get('success'):
+                license_block_success = True
+                logger.info(f"[LicenseBlock] License block agregado exitosamente al suscriptor {subscriber_code}")
+            else:
+                license_block_error = license_response.get('errorMessage', 'Error desconocido')
+                logger.error(f"[LicenseBlock] Error al agregar license block: {license_block_error}")
+                
+        except Exception as e:
+            license_block_error = str(e)
+            logger.error(f"[LicenseBlock] Excepción al agregar license block: {str(e)}", exc_info=True)
+        
+        # Agregar información de license block a la respuesta
+        if license_block_success:
+            response_data['license_block_added'] = True
+            response_data['message'] += '. License block agregado correctamente.'
+        else:
+            response_data['license_block_added'] = False
+            response_data['license_block_error'] = license_block_error
+            response_data['message'] += '. No se pudo agregar el license block.'
+        
         return Response(response_data, status=status.HTTP_201_CREATED)
         
     except PanAccessException as e:
