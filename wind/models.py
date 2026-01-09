@@ -5,7 +5,7 @@ from .utils.encryption import encrypt_value, decrypt_value
 
 
 class ListOfSubscriber(models.Model):
-    id = models.CharField(primary_key=True, unique=True, max_length=100)
+    id = models.CharField(primary_key=True, blank=True, unique=True, max_length=100)
     code = models.CharField(max_length=100, blank=True, null=True, unique=True, db_index=True)
     lastName = models.CharField(max_length=100, null=True, blank=True)
     firstName = models.CharField(max_length=100, null=True, blank=True)
@@ -22,7 +22,7 @@ class ListOfSubscriber(models.Model):
     
     # Contactos
     emails = models.EmailField(null=True, blank=True, db_index=True)  # Email principal (primer email de la lista)
-    phones = models.CharField(null=True, blank=True)  # Lista de teléfonos
+    phones = models.JSONField(null=True, blank=True)  # Lista de teléfonos
     faxes = models.JSONField(null=True, blank=True)
     skypes = models.JSONField(null=True, blank=True)
     mobiles = models.JSONField(null=True, blank=True)

@@ -15,6 +15,30 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+def extract_first_email(emails_data):
+    """
+    Extrae el primer email de una lista o retorna None.
+    
+    Args:
+        emails_data: Puede ser una lista, un string, o None
+    
+    Returns:
+        str: El primer email normalizado (lowercase) o None
+    """
+    if not emails_data:
+        return None
+    
+    if isinstance(emails_data, list):
+        if len(emails_data) > 0 and emails_data[0]:
+            return emails_data[0].lower().strip() if isinstance(emails_data[0], str) else None
+        return None
+    
+    if isinstance(emails_data, str):
+        return emails_data.lower().strip()
+    
+    return None
+
+
 def DataBaseEmpty():
     """
     Verifica si la tabla ListOfSubscriber está vacía.
@@ -96,16 +120,19 @@ def fetch_all_subscribers(session_id=None, limit=100):
     
     while True:
         result = CallListExtendedSubscribers(session_id, offset, limit)
-        rows = result.get("subscriberEntries") or result.get("rows", [])
+        # Log para debug: ver estructura de respuesta
+        logger.info(f"Estructura de respuesta: keys={list(result.keys())}, count={result.get('count', 'N/A')}")
+        
+        rows = result.get("extendedSubscriberEntries") or result.get("subscriberEntries") or result.get("rows", [])
         if not rows:
+            logger.warning(f"No se encontraron filas en la respuesta. Keys disponibles: {list(result.keys())}, count: {result.get('count', 'N/A')}")
             break
         
+        logger.info(f"Procesando {len(rows)} filas")
+        
         for row in rows:
-            # Validar que tenga subscriberCode
+            # Obtener subscriberCode (puede estar vacío según PanAccess)
             subscriber_code = row.get("subscriberCode")
-            if not subscriber_code:
-                logger.warning(f"Suscriptor sin código, omitiendo: {row.get('firstName', 'N/A')} {row.get('lastName', 'N/A')}")
-                continue
             
             # Procesar cada suscriptor extendido
             subscriber_data = {
@@ -120,7 +147,7 @@ def fetch_all_subscribers(session_id=None, limit=100):
                 "supervisor": row.get("supervisor"),
                 "comment": row.get("comment"),
                 "ip": row.get("ip"),
-                "emails": row.get("emails"),
+                "emails": extract_first_email(row.get("emails")),
                 "phones": row.get("phones"),
                 "faxes": row.get("faxes"),
                 "skypes": row.get("skypes"),
@@ -201,7 +228,8 @@ def store_all_subscribers_in_chunks(data_batch, chunk_size=100):
     """
     total = len(data_batch)
     if total == 0:
-        return
+        logger.warning("No hay datos para almacenar")
+        return (0, 0)
     logger.info(f"Almacenando {total} suscriptores")
     
     total_inserted = 0
@@ -219,6 +247,7 @@ def store_all_subscribers_in_chunks(data_batch, chunk_size=100):
             else:
                 total_errors += 1
                 logger.warning(f"Error validando suscriptor {item.get('code', 'N/A')}: {serializer.errors}")
+                logger.debug(f"Datos del suscriptor inválido: {item}")
         
         if valid_objects:
             try:
@@ -257,15 +286,12 @@ def download_subscribers_since_last(session_id=None, limit=100):
     
     while True:
         result = CallListExtendedSubscribers(session_id, offset, limit)
-        rows = result.get("subscriberEntries") or result.get("rows", [])
+        rows = result.get("extendedSubscriberEntries") or result.get("subscriberEntries") or result.get("rows", [])
         if not rows:
             break
         
         for row in rows:
             code = row.get("subscriberCode")
-            if not code:
-                logger.warning(f"Suscriptor sin código, omitiendo: {row.get('firstName', 'N/A')} {row.get('lastName', 'N/A')}")
-                continue
             
             if code == highest_code:
                 found = True
@@ -284,7 +310,7 @@ def download_subscribers_since_last(session_id=None, limit=100):
                 "supervisor": row.get("supervisor"),
                 "comment": row.get("comment"),
                 "ip": row.get("ip"),
-                "emails": row.get("emails"),
+                "emails": extract_first_email(row.get("emails")),
                 "phones": row.get("phones"),
                 "faxes": row.get("faxes"),
                 "skypes": row.get("skypes"),
@@ -399,8 +425,6 @@ def compare_and_update_all_subscribers(session_id=None, limit=100):
             
         for row in remote_list:
             code = row.get("subscriberCode")
-            if not code:
-                continue
             
             # Agregar código a la lista de remotos
             remote_codes.add(code)
@@ -421,7 +445,7 @@ def compare_and_update_all_subscribers(session_id=None, limit=100):
                     "supervisor": row.get("supervisor"),
                     "comment": row.get("comment"),
                     "ip": row.get("ip"),
-                    "emails": row.get("emails"),
+                    "emails": extract_first_email(row.get("emails")),
                     "phones": row.get("phones"),
                     "faxes": row.get("faxes"),
                     "skypes": row.get("skypes"),

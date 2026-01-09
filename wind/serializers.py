@@ -13,10 +13,10 @@ class ListOfSubscriberSerializer(serializers.ModelSerializer):
         fields = '__all__'
         
     def validate_code(self, value):
-        """Validar que el código del suscriptor no esté vacío"""
-        if not value or not value.strip():
-            raise serializers.ValidationError("El código del suscriptor es requerido")
-        return value.strip()
+        """Validar y normalizar el código del suscriptor (puede estar vacío según PanAccess)"""
+        if value:
+            return value.strip()
+        return value  # Permitir códigos vacíos
 
 class ListOfSmartcardsSerializer(serializers.ModelSerializer):
     """Serializer para datos raw de smartcards desde Panaccess"""
