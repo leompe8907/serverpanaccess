@@ -474,6 +474,58 @@ def create_subscriber_view(request):
                             subscriber_obj.save(update_fields=['smartcards'])
                             logger.info(f"[DB] Campo smartcards actualizado exitosamente para suscriptor {subscriber_code}")
                             logger.info(f"[DB] Smartcards guardadas: {updated_smartcards}")
+                            
+                            # Agregar productos a las smartcards asociadas
+                            if updated_smartcards and isinstance(updated_smartcards, list) and len(updated_smartcards) > 0:
+                                try:
+                                    logger.info(f"[Products] Iniciando proceso para agregar productos a {len(updated_smartcards)} smartcards")
+                                    
+                                    # ProductId fijo
+                                    product_id = 4639
+                                    
+                                    # Calcular fecha de expiración: 30 días desde la creación del suscriptor
+                                    from datetime import timedelta
+                                    created_date = subscriber_obj.created if subscriber_obj.created else timezone.now()
+                                    expiry_time = created_date + timedelta(days=30)
+                                    
+                                    # Formatear fecha para PanAccess (formato esperado: YYYY-MM-DD HH:MM:SS)
+                                    expiry_time_str = expiry_time.strftime('%Y-%m-%d %H:%M:%S')
+                                    
+                                    logger.info(f"[Products] Agregando producto {product_id} a {len(updated_smartcards)} smartcards")
+                                    logger.info(f"[Products] Fecha de expiración: {expiry_time_str} (30 días desde creación)")
+                                    
+                                    # Preparar parámetros para addProductToSmartcards
+                                    # PanAccess puede esperar smartcards en diferentes formatos
+                                    # Intentar primero con notación de corchetes (smartcards[0], smartcards[1], etc.)
+                                    product_params = {
+                                        'productId': product_id,
+                                        'hcId': hcId,  # Usar hcId de la configuración
+                                        'expiryTime': expiry_time_str
+                                    }
+                                    
+                                    # Agregar smartcards con notación de corchetes
+                                    for idx, smartcard in enumerate(updated_smartcards):
+                                        if smartcard:  # Solo agregar si no está vacío
+                                            product_params[f'smartcards[{idx}]'] = str(smartcard)
+                                    
+                                    logger.info(f"[Products] Parámetros a enviar: smartcards={len(updated_smartcards)} items (formato indexado), productId={product_id}, hcId={hcId}, expiryTime={expiry_time_str}")
+                                    
+                                    # Llamar a addProductToSmartcards
+                                    product_response = panaccess.call('addProductToSmartcards', product_params)
+                                    
+                                    logger.info(f"[Products] Respuesta recibida - success={product_response.get('success')}")
+                                    
+                                    if product_response.get('success'):
+                                        logger.info(f"[Products] Producto {product_id} agregado exitosamente a {len(updated_smartcards)} smartcards")
+                                    else:
+                                        error_msg = product_response.get('errorMessage', 'Error desconocido')
+                                        logger.error(f"[Products] Error al agregar producto a smartcards: {error_msg}")
+                                        
+                                except Exception as e:
+                                    logger.error(f"[Products] Excepción al agregar productos a smartcards: {str(e)}", exc_info=True)
+                                    # No fallar el proceso completo si esto falla
+                            else:
+                                logger.info(f"[Products] No hay smartcards asociadas para agregar productos")
                         except ListOfSubscriber.DoesNotExist:
                             logger.warning(f"[DB] Suscriptor {subscriber_code} no encontrado en BD local para actualizar smartcards")
                         except Exception as e:

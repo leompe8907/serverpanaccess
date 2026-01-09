@@ -9,7 +9,7 @@ class ListOfSubscriber(models.Model):
     code = models.CharField(max_length=100, blank=True, null=True, unique=True, db_index=True)
     lastName = models.CharField(max_length=100, null=True, blank=True)
     firstName = models.CharField(max_length=100, null=True, blank=True)
-    smartcards = models.JSONField(null=True, blank=True)
+    smartcards = models.JSONField(null=True, blank=True, db_index=True)
     created = models.DateTimeField(null=True, blank=True)  # Cambiado de DateField a DateTimeField
     
     # Nuevos campos de información extendida
@@ -45,6 +45,7 @@ class ListOfSubscriber(models.Model):
         indexes = [
             models.Index(fields=['code']),
             models.Index(fields=['emails']),
+            models.Index(fields=['smartcards']),
         ]
 
     def __str__(self):
