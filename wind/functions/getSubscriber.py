@@ -38,6 +38,28 @@ def extract_first_email(emails_data):
     
     return None
 
+def extract_first_phone(phones_data):
+    """
+    Extrae el primer teléfono de una lista o retorna None.
+    
+    Args:
+        phones_data: Puede ser una lista, un string, o None
+    
+    Returns:
+        str: El primer teléfono o None
+    """
+    if not phones_data:
+        return None
+    
+    if isinstance(phones_data, list):
+        if len(phones_data) > 0 and phones_data[0]:
+            return str(phones_data[0]).strip() if phones_data[0] else None
+        return None
+    
+    if isinstance(phones_data, str):
+        return phones_data.strip()
+    
+    return None
 
 def DataBaseEmpty():
     """
@@ -148,7 +170,7 @@ def fetch_all_subscribers(session_id=None, limit=100):
                 "comment": row.get("comment"),
                 "ip": row.get("ip"),
                 "emails": extract_first_email(row.get("emails")),
-                "phones": row.get("phones"),
+                "phones": extract_first_phone(row.get("phones")),
                 "faxes": row.get("faxes"),
                 "skypes": row.get("skypes"),
                 "mobiles": row.get("mobiles"),
@@ -225,6 +247,7 @@ def fetch_all_subscribers(session_id=None, limit=100):
 def store_all_subscribers_in_chunks(data_batch, chunk_size=100):
     """
     Almacena suscriptores en la base de datos en bloques para mejorar el rendimiento.
+    Actualiza los existentes si ya están en la base de datos.
     """
     total = len(data_batch)
     if total == 0:
@@ -233,22 +256,80 @@ def store_all_subscribers_in_chunks(data_batch, chunk_size=100):
     logger.info(f"Almacenando {total} suscriptores")
     
     total_inserted = 0
+    total_updated = 0
     total_errors = 0
     
     for i in range(0, total, chunk_size):
         chunk = data_batch[i:i + chunk_size]
         valid_objects = []
         
+        # Obtener códigos e IDs de los suscriptores en este chunk
+        codes = {item.get('code') for item in chunk if item.get('code')}
+        ids = {item.get('id') for item in chunk if item.get('id')}
+        
+        # Buscar existentes por código e ID
+        existing_by_code = {
+            obj.code: obj for obj in ListOfSubscriber.objects.filter(code__in=codes) if obj.code
+        }
+        existing_by_id = {
+            obj.id: obj for obj in ListOfSubscriber.objects.filter(id__in=ids) if obj.id
+        }
+        
         for item in chunk:
             # Validar con serializer
             serializer = ListOfSubscriberSerializer(data=item)
-            if serializer.is_valid():
-                valid_objects.append(ListOfSubscriber(**serializer.validated_data))
-            else:
+            if not serializer.is_valid():
                 total_errors += 1
                 logger.warning(f"Error validando suscriptor {item.get('code', 'N/A')}: {serializer.errors}")
                 logger.debug(f"Datos del suscriptor inválido: {item}")
+                continue
+            
+            validated = serializer.validated_data
+            code = validated.get('code')
+            subscriber_id = validated.get('id')
+            
+            # Verificar si existe por código o ID
+            existing = None
+            if code and code in existing_by_code:
+                existing = existing_by_code[code]
+            elif subscriber_id and subscriber_id in existing_by_id:
+                existing = existing_by_id[subscriber_id]
+            
+            if existing:
+                # Actualizar registro existente
+                changed = False
+                changed_fields = []
+                for key, val in validated.items():
+                    current_val = getattr(existing, key, None)
+                    # Comparar valores considerando tipos
+                    if isinstance(current_val, list) and isinstance(val, list):
+                        if current_val != val:
+                            setattr(existing, key, val)
+                            changed = True
+                            changed_fields.append(key)
+                    elif isinstance(current_val, dict) and isinstance(val, dict):
+                        if current_val != val:
+                            setattr(existing, key, val)
+                            changed = True
+                            changed_fields.append(key)
+                    elif str(current_val) != str(val):
+                        setattr(existing, key, val)
+                        changed = True
+                        changed_fields.append(key)
+                
+                if changed:
+                    try:
+                        existing.save(update_fields=changed_fields)
+                        total_updated += 1
+                        logger.debug(f"Suscriptor {code or subscriber_id} actualizado: {changed_fields}")
+                    except Exception as e:
+                        logger.error(f"Error actualizando suscriptor {code or subscriber_id}: {str(e)}")
+                        total_errors += 1
+            else:
+                # Nuevo registro
+                valid_objects.append(ListOfSubscriber(**validated))
         
+        # Insertar nuevos registros
         if valid_objects:
             try:
                 created = ListOfSubscriber.objects.bulk_create(valid_objects, ignore_conflicts=True)
@@ -257,7 +338,7 @@ def store_all_subscribers_in_chunks(data_batch, chunk_size=100):
                 logger.error(f"Error insertando chunk {i//chunk_size + 1}: {str(e)}")
                 total_errors += len(valid_objects)
     
-    logger.info(f"Almacenados {total_inserted} suscriptores, {total_errors} errores")
+    logger.info(f"Almacenados {total_inserted} nuevos, {total_updated} actualizados, {total_errors} errores")
     return total_inserted, total_errors
 
 def download_subscribers_since_last(session_id=None, limit=100):
@@ -311,7 +392,7 @@ def download_subscribers_since_last(session_id=None, limit=100):
                 "comment": row.get("comment"),
                 "ip": row.get("ip"),
                 "emails": extract_first_email(row.get("emails")),
-                "phones": row.get("phones"),
+                "phones": extract_first_phone(row.get("phones")),
                 "faxes": row.get("faxes"),
                 "skypes": row.get("skypes"),
                 "mobiles": row.get("mobiles"),
@@ -419,7 +500,7 @@ def compare_and_update_all_subscribers(session_id=None, limit=100):
     
     while True:
         response = CallListExtendedSubscribers(session_id, offset, limit)
-        remote_list = response.get("subscriberEntries") or response.get("rows", [])
+        remote_list = response.get("extendedSubscriberEntries") or response.get("subscriberEntries") or response.get("rows", [])
         if not remote_list:
             break
             
@@ -446,7 +527,7 @@ def compare_and_update_all_subscribers(session_id=None, limit=100):
                     "comment": row.get("comment"),
                     "ip": row.get("ip"),
                     "emails": extract_first_email(row.get("emails")),
-                    "phones": row.get("phones"),
+                    "phones": extract_first_phone(row.get("phones")),
                     "faxes": row.get("faxes"),
                     "skypes": row.get("skypes"),
                     "mobiles": row.get("mobiles"),
@@ -598,7 +679,7 @@ def CallListSubscribers(session_id=None, offset=0, limit=100):
             'offset': offset,
             'limit': limit,
             'orderDir': 'DESC',
-            'orderBy': 'code'
+            'orderBy': 'created'
         }
         response = panaccess.call('getListOfSubscribers', parameters)
 

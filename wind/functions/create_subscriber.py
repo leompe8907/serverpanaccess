@@ -203,9 +203,9 @@ def create_subscriber_view(request):
             logger.info(f"Agregando email {email_normalized} al suscriptor {subscriber_code}")
             contact_params = {
                 'code': subscriber_code,  # PanAccess espera 'code', no 'subscriberCode'
-                'contact[type]': 'email',
-                'contact[isBusiness]': False,
-                'contact[contact]': email_normalized
+                'type': 'email',  # Parámetros planos según documentación SOAP
+                'isBusiness': False,
+                'contact': email_normalized
             }
             contact_response = panaccess.call('addContactToSubscriber', contact_params)
             
@@ -226,9 +226,9 @@ def create_subscriber_view(request):
                 logger.info(f"Agregando teléfono {data.get('phone')} al suscriptor {subscriber_code}")
                 contact_params = {
                     'code': subscriber_code,  # PanAccess espera 'code', no 'subscriberCode'
-                    'contact[type]': 'phone',
-                    'contact[isBusiness]': False,
-                    'contact[contact]': data.get('phone')
+                    'type': 'phone',  # Parámetros planos según documentación SOAP
+                    'isBusiness': False,
+                    'contact': data.get('phone')
                 }
                 contact_response = panaccess.call('addContactToSubscriber', contact_params)
                 
