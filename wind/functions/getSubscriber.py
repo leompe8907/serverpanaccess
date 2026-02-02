@@ -784,41 +784,6 @@ def sync_subscribers(session_id=None, limit=100):
         logger.error(f"Error inesperado: {str(e)}", exc_info=True)
         raise
 
-def CallListSubscribers(session_id=None, offset=0, limit=100):
-    """
-    Llama a la API de Panaccess para obtener la lista de suscriptores.
-    
-    Args:
-        session_id: ID de sesión (opcional, se usa el singleton si no se proporciona)
-        offset: Índice de inicio para paginación
-        limit: Cantidad máxima de registros a obtener
-    
-    Returns:
-        Diccionario con la respuesta de PanAccess
-    """
-    try:
-        panaccess = get_panaccess()
-        parameters = {
-            'offset': offset,
-            'limit': limit,
-            'orderDir': 'DESC',
-            'orderBy': 'created'
-        }
-        response = panaccess.call('getListOfSubscribers', parameters)
-
-        if response.get('success'):
-            return response.get('answer', {})
-        else:
-            error_message = response.get('errorMessage', 'Error desconocido al obtener suscriptores')
-            logger.error(f"Error PanAccess: {error_message}")
-            raise PanAccessException(error_message)
-
-    except PanAccessException:
-        raise
-    except Exception as e:
-        logger.error(f"Error llamada API: {str(e)}", exc_info=True)
-        raise
-
 def CallListExtendedSubscribers(session_id=None, offset=0, limit=100):
     """
     Llama a la API de Panaccess para obtener la lista extendida de suscriptores.
@@ -837,7 +802,7 @@ def CallListExtendedSubscribers(session_id=None, offset=0, limit=100):
             'usePrefixFlags': True,
             'offset': offset,
             'limit': limit,
-            "orderBy": "code",
+            "orderBy": "created",
             "orderDir": "DESC"
         }
         response = panaccess.call('getListOfExtendedSubscribers', parameters)
