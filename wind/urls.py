@@ -13,8 +13,11 @@ from wind.functions import (
     smartcards_stats_view,
     create_subscriber_view,
 )
+from wind.views import login_test_view
 
 urlpatterns = [
+    # Página de prueba: Iniciar sesión con Google
+    path('login-test/', login_test_view, name='login_test'),
     # Autenticación
     path('login/', login, name='login'),
     path('logged-in/', logged_in_view, name='logged_in'),
