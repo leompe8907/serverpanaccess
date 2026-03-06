@@ -65,6 +65,10 @@ INSTALLED_APPS = [
     'allauth.socialaccount',
     'allauth.socialaccount.providers.facebook',
     'allauth.socialaccount.providers.google',
+    'rest_framework.authtoken',
+    'rest_framework_simplejwt',
+    'dj_rest_auth',
+    'dj_rest_auth.registration',
 ]
 
 AUTHENTICATION_BACKENDS = [
@@ -90,6 +94,9 @@ MIDDLEWARE = [
     'allauth.account.middleware.AccountMiddleware',
 ]
 
+# Permitir que el popup de Google Sign-In se comunique con nuestra ventana
+SECURE_CROSS_ORIGIN_OPENER_POLICY = 'same-origin-allow-popups'
+
 # ============================================================================
 # CONFIGURACIÓN DE REST FRAMEWORK
 # ============================================================================
@@ -97,8 +104,44 @@ REST_FRAMEWORK = {
     #* Permisos por defecto para DjangoModelPermissionsOrAnonReadOnly
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.DjangoModelPermissionsOrAnonReadOnly'
-    ]
+    ],
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    )
 }
+
+# ============================================================================
+# JWT y DJ-REST-AUTH: Autenticación de sesiones de cliente
+# ============================================================================
+from datetime import timedelta
+
+REST_AUTH = {
+    'USE_JWT': True,
+    'JWT_AUTH_COOKIE': 'wind-auth',
+    'JWT_AUTH_REFRESH_COOKIE': 'wind-refresh-token',
+    'USER_DETAILS_SERIALIZER': 'wind.serializers.SubscriberInfoSerializer',
+}
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
+    'AUTH_HEADER_TYPES': ('Bearer',),
+}
+
+# ============================================================================
+# ALLAUTH: Autenticación y flujos sociales
+# ============================================================================
+SITE_ID = 1
+ACCOUNT_EMAIL_REQUIRED = True
+ACCOUNT_USERNAME_REQUIRED = False
+ACCOUNT_AUTHENTICATION_METHOD = 'email'
+ACCOUNT_EMAIL_VERIFICATION = 'optional'
+
+# Adaptador perzonalizado para conectar Google con PanAccess
+SOCIALACCOUNT_ADAPTER = 'wind.adapters.PanAccessSocialAccountAdapter'
+
 
 # ============================================================================
 # URLs

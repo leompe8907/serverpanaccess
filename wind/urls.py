@@ -14,11 +14,15 @@ from wind.functions import (
     create_subscriber_view,
 )
 from wind.views import login_test_view
+from wind.auth_views import GoogleLoginView
 
 urlpatterns = [
-    # Página de prueba: Iniciar sesión con Google
+    # Autenticación Social vía REST API (Token de Google a JWT Django)
+    path('auth/google/', GoogleLoginView.as_view(), name='google_login_api'),
+
+    # Página de prueba: Iniciar sesión con Google (nativo HTML)
     path('login-test/', login_test_view, name='login_test'),
-    # Autenticación
+    # Autenticación PanAccess legada
     path('login/', login, name='login'),
     path('logged-in/', logged_in_view, name='logged_in'),
     path('singleton/', singleton, name='singleton'),

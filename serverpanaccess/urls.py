@@ -19,6 +19,12 @@ from django.urls import path, include
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    # URLs nativas de Allauth para renderizado HTML de providers
     path('accounts/', include('allauth.urls')),
+    
+    # Nuevos endpoints de JWT y Autenticación REST
+    path('api/auth/', include('dj_rest_auth.urls')),
+    path('api/auth/registration/', include('dj_rest_auth.registration.urls')),
+
     path('wind/', include('wind.urls')),
 ]
