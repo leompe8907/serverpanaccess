@@ -48,7 +48,7 @@
     <div class="container">
         <!-- Contenedor donde Google renderizará el botón -->
         <div id="g_id_onload"
-             data-client_id="801802375592-kjagj7ofbhvr5o8lt7lb2emg31830iho.apps.googleusercontent.com"
+             data-client_id="{{ google_client_id }}"
              data-context="signin"
              data-ux_mode="popup"
              data-callback="handleCredentialResponse"
@@ -96,7 +96,7 @@
                     access_token: response.credential 
                 })
             })
-            .then(res => {
+            .then(async res => {
                 if (!res.ok) {
                     statusText.textContent = 'Error HTTP: ' + res.status;
                     statusText.className = 'status error';
@@ -104,11 +104,21 @@
                     statusText.textContent = '¡Éxito! Respuesta recibida:';
                     statusText.className = 'status success';
                 }
-                return res.json();
+                const ct = res.headers.get('content-type') || '';
+                if (ct.includes('application/json')) {
+                    return res.json();
+                }
+                const text = await res.text();
+                try {
+                    return JSON.parse(text);
+                } catch (_) {
+                    return { error: res.status, body: text.slice(0, 500) };
+                }
             })
             .then(data => {
-                // Mostrar el JSON formateado en pantalla
-                jsonResult.textContent = JSON.stringify(data, null, 4);
+                jsonResult.textContent = typeof data === 'object'
+                    ? JSON.stringify(data, null, 4)
+                    : String(data);
             })
             .catch(error => {
                 statusText.textContent = 'Error de red';

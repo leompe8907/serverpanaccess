@@ -74,7 +74,6 @@ INSTALLED_APPS = [
 AUTHENTICATION_BACKENDS = [
     # Needed to login by username in Django admin, regardless of `allauth`
     'django.contrib.auth.backends.ModelBackend',
-
     # `allauth` specific authentication methods, such as login by email
     'allauth.account.auth_backends.AuthenticationBackend',
 ]
@@ -119,7 +118,7 @@ REST_AUTH = {
     'USE_JWT': True,
     'JWT_AUTH_COOKIE': 'wind-auth',
     'JWT_AUTH_REFRESH_COOKIE': 'wind-refresh-token',
-    'USER_DETAILS_SERIALIZER': 'wind.serializers.SubscriberInfoSerializer',
+    'USER_DETAILS_SERIALIZER': 'wind.serializers.JWTUserDetailsSerializer',
 }
 
 SIMPLE_JWT = {
@@ -269,6 +268,9 @@ CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", CELERY_BROKER_URL)
 CELERY_TASK_TIME_LIMIT = _as_int(os.getenv("CELERY_TASK_TIME_LIMIT", "600"), 600)          # hard limit
 CELERY_TASK_SOFT_TIME_LIMIT = _as_int(os.getenv("CELERY_TASK_SOFT_TIME_LIMIT", "540"), 540)  # aviso previo
 CELERY_WORKER_MAX_TASKS_PER_CHILD = _as_int(os.getenv("CELERY_WORKER_MAX_TASKS_PER_CHILD", "100"), 100)
+# En Windows el pool "prefork" falla con PermissionError/WinError 6 (billiard).
+# "solo" = un solo proceso, estable en Windows; en Linux se puede usar "prefork".
+CELERY_WORKER_POOL = os.getenv("CELERY_WORKER_POOL", "solo" if sys.platform == "win32" else "prefork")
 CELERY_ENABLE_UTC = True
 CELERY_TIMEZONE = TIME_ZONE
 
@@ -440,6 +442,11 @@ LOGGING = {
 SOCIALACCOUNT_PROVIDERS = {
     'google': {
         'SCOPE': ['profile', 'email'],
+        'APP': {
+            'client_id': os.getenv('GOOGLE_CLIENT_ID'),
+            'secret': os.getenv('GOOGLE_CLIENT_SECRET'),
+            'key': '',
+        },
     },
 }
 

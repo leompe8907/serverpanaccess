@@ -1,9 +1,13 @@
+from django.contrib.auth import get_user_model
 from django.utils import timezone
 from rest_framework import serializers
+
 from .models import (
-    ListOfSubscriber, ListOfSmartcards, SubscriberLoginInfo, SubscriberInfo, 
-    ListOfProducts, SubscriberEmailRegistry, SubscriberDocumentRegistry
+    ListOfSubscriber, ListOfSmartcards, SubscriberLoginInfo, SubscriberInfo,
+    ListOfProducts, SubscriberEmailRegistry, SubscriberDocumentRegistry,
 )
+
+User = get_user_model()
 
 class ListOfSubscriberSerializer(serializers.ModelSerializer):
     """Serializer para datos raw de suscriptores desde Panaccess"""
@@ -78,6 +82,28 @@ class SubscriberInfoSerializer(serializers.ModelSerializer):
             # Read-only fields  
             'password_hash', 'pin_hash', 'failed_login_attempts', 'locked_until'
         ]
+
+
+class JWTUserDetailsSerializer(serializers.ModelSerializer):
+    """
+    Serializer para el usuario en la respuesta JWT (login con email/Google).
+    Serializa el User de Django y añade subscriber_code si existe en
+    SubscriberEmailRegistry. Usado por REST_AUTH USER_DETAILS_SERIALIZER.
+    """
+    subscriber_code = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = ['pk', 'email', 'first_name', 'last_name', 'subscriber_code']
+        read_only_fields = ['pk', 'email', 'first_name', 'last_name', 'subscriber_code']
+
+    def get_subscriber_code(self, obj):
+        if not obj or not getattr(obj, 'email', None):
+            return None
+        try:
+            return SubscriberEmailRegistry.objects.get(email=obj.email).subscriber_code
+        except SubscriberEmailRegistry.DoesNotExist:
+            return None
 
 
 # Serializers para crear suscriptores

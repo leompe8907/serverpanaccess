@@ -1,28 +1,26 @@
+import logging
+
 from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
 from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 from dj_rest_auth.registration.views import SocialLoginView
-from rest_framework.response import Response
-import logging
 
-from wind.models import SubscriberEmailRegistry
+from wind.auth_serializers import GoogleIdTokenSocialLoginSerializer
 from wind.functions.getSubscriberLoginInfo import CallGetSubscriberLoginInfo
+from wind.models import SubscriberEmailRegistry
 
 logger = logging.getLogger(__name__)
+
 
 class GoogleLoginView(SocialLoginView):
     """
     Vista para procesar el login con Google mediante API REST.
-    El cliente (frontend) debe enviar un POST con 'access_token' o 'id_token' 
-    obtenido directamente desde Google.
-    
-    Esta vista llamará por detrás al PanAccessSocialAccountAdapter debido
-    a la configuración de SOCIALACCOUNT_ADAPTER en settings.py.
+    El cliente (frontend) envía el JWT de Google Identity en 'access_token';
+    el serializer lo trata como id_token para que allauth decodifique el JWT.
     """
     adapter_class = GoogleOAuth2Adapter
     client_class = OAuth2Client
-    
-    # URL de callback configurada en tu Google Developer Console.
-    # Puede ser '' si estás enviando un ID Token desde la app cliente.
+    serializer_class = GoogleIdTokenSocialLoginSerializer
+
     callback_url = 'http://localhost:8000/accounts/google/login/callback/'
 
     def get_response(self):

@@ -1,12 +1,15 @@
 import logging
+import json
+
 from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
+from allauth.socialaccount.models import SocialApp
 from django.contrib.auth import get_user_model
+from django.core.exceptions import MultipleObjectsReturned
+from django.test import RequestFactory
 from rest_framework.exceptions import ValidationError
 
 from wind.models import SubscriberEmailRegistry, SubscriberInfo
 from wind.functions.create_subscriber import create_subscriber_view
-from django.test import RequestFactory
-import json
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +34,37 @@ class PanAccessSocialAccountAdapter(DefaultSocialAccountAdapter):
     Adaptador personalizado para Allauth que intercepta el login social (Google)
     y sincroniza/registra al usuario en el sistema PanAccess.
     """
+
+    def get_app(self, request, provider, client_id=None, **kwargs):
+        """
+        Soluciona errores MultipleObjectsReturned cuando existen varias SocialApp
+        para el mismo provider/site seleccionando una de forma determinista.
+        """
+        try:
+            return super().get_app(request, provider, client_id=client_id, **kwargs)
+        except MultipleObjectsReturned:
+            qs = SocialApp.objects.filter(provider=provider)
+
+            site = getattr(request, "site", None)
+            if site is not None:
+                qs = qs.filter(sites=site)
+
+            if client_id:
+                qs = qs.filter(client_id=client_id)
+
+            app = qs.order_by("id").first()
+            if not app:
+                # Si no queda ninguna coincidencia, volvemos a lanzar el error original
+                raise
+
+            logger.warning(
+                "Multiple SocialApp found for provider '%s'. "
+                "Using SocialApp(id=%s, name=%s).",
+                provider,
+                app.id,
+                app.name,
+            )
+            return app
 
     def pre_social_login(self, request, sociallogin):
         """
