@@ -1,6 +1,7 @@
 import logging
 
 from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
+from allauth.socialaccount.providers.facebook.views import FacebookOAuth2Adapter
 from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 from dj_rest_auth.registration.views import SocialLoginView
 
@@ -94,6 +95,85 @@ class GoogleLoginView(SocialLoginView):
                 response.data['panaccess_credentials'] = None
         except Exception as e:
             logger.error(f"Error obteniendo credenciales de PanAccess para la vista: {str(e)}")
+            response.data['panaccess_credentials'] = None
+
+        return response
+
+
+class FacebookLoginView(SocialLoginView):
+    """
+    Vista para procesar el login social con Facebook mediante API REST.
+
+    El cliente (frontend) debe enviar un POST con:
+      { "access_token": "<FACEBOOK_ACCESS_TOKEN>" }
+
+    La respuesta incluye:
+      - access/refresh JWT de Django
+      - panaccess_credentials (login1/password/login2/subscriberCode)
+    """
+
+    adapter_class = FacebookOAuth2Adapter
+    client_class = OAuth2Client
+
+    def get_response(self):
+        response = super().get_response()
+        user = self.user
+
+        try:
+            registry = SubscriberEmailRegistry.objects.get(email=user.email)
+            subscriber_code = registry.subscriber_code
+
+            login_info = CallGetSubscriberLoginInfo(subscriber_code=subscriber_code)
+            panaccess_credentials = {
+                'login1': login_info.get('login1'),
+                'password': login_info.get('password'),
+                'login2': login_info.get('login2', ''),
+                'subscriberCode': subscriber_code,
+            }
+            response.data['panaccess_credentials'] = panaccess_credentials
+
+        except SubscriberEmailRegistry.DoesNotExist:
+            # En caso edge: el usuario existe pero falta la asociacion local.
+            # Reintentamos el provisionamiento con create-subscriber.
+            try:
+                logger.warning(
+                    "No se encontró SubscriberEmailRegistry para %s. "
+                    "Intentando crear suscriptor automáticamente.",
+                    user.email,
+                )
+                from wind.adapters import create_subscriber_in_panaccess
+
+                result = create_subscriber_in_panaccess(
+                    email=user.email,
+                    first_name=user.first_name or (user.email.split('@')[0] if user.email else ""),
+                    last_name=user.last_name or "Social Login",
+                    auto_generate_code=True,
+                    comment="Creado vía Facebook Social Login (auto-recovery)",
+                )
+
+                registry = SubscriberEmailRegistry.objects.get(email=user.email)
+                subscriber_code = registry.subscriber_code
+                login_info = CallGetSubscriberLoginInfo(subscriber_code=subscriber_code)
+
+                response.data['panaccess_credentials'] = {
+                    'login1': login_info.get('login1'),
+                    'password': login_info.get('password'),
+                    'login2': login_info.get('login2', ''),
+                    'subscriberCode': subscriber_code,
+                }
+
+                response.data['subscriber_provisioning'] = {
+                    'create_subscriber_result': result,
+                }
+            except Exception:
+                response.data['panaccess_credentials'] = None
+
+        except Exception as e:
+            logger.error(
+                "Error obteniendo credenciales de PanAccess para Facebook: %s",
+                str(e),
+                exc_info=True,
+            )
             response.data['panaccess_credentials'] = None
 
         return response

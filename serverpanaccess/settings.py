@@ -137,7 +137,10 @@ SITE_ID = 1
 ACCOUNT_EMAIL_REQUIRED = True
 ACCOUNT_USERNAME_REQUIRED = False
 ACCOUNT_AUTHENTICATION_METHOD = 'email'
-ACCOUNT_EMAIL_VERIFICATION = 'optional'
+# Para flujos headless/mobile (REST) evitamos el envío de correos de verificación
+# durante el login social. En desarrollo no hay SMTP configurado y esto provoca
+# un 500 al intentar enviar confirmaciones.
+ACCOUNT_EMAIL_VERIFICATION = 'none'
 
 # Adaptador perzonalizado para conectar Google con PanAccess
 SOCIALACCOUNT_ADAPTER = 'wind.adapters.PanAccessSocialAccountAdapter'

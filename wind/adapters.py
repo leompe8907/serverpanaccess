@@ -8,7 +8,7 @@ from django.core.exceptions import MultipleObjectsReturned
 from django.test import RequestFactory
 from rest_framework.exceptions import ValidationError
 
-from wind.models import SubscriberEmailRegistry, SubscriberInfo
+from wind.models import SubscriberEmailRegistry, SubscriberInfo, ListOfSubscriber
 from wind.functions.create_subscriber import create_subscriber_view
 
 logger = logging.getLogger(__name__)
@@ -72,14 +72,23 @@ class PanAccessSocialAccountAdapter(DefaultSocialAccountAdapter):
         pero antes de que se efectúe el login en Django.
         Aquí verificaremos o crearemos el suscriptor en PanAccess.
         """
-        # Ignorar si es un inicio de sesión de cuenta vinculada existente
-        if sociallogin.is_existing:
-            return
-
         user_email = sociallogin.user.email
         if not user_email:
             logger.error("El proveedor social no retornó un email")
             raise ValidationError("Se requiere un correo electrónico del proveedor social.")
+
+        # Si ya existe un usuario local con este email, aseguramos que allauth
+        # lo use como usuario destino para el login social.
+        # Esto evita el error de dj-rest-auth:
+        # "User is already registered with this e-mail address."
+        # cuando el SocialAccount (Facebook/Google) aún no está vinculado.
+        existing_local_user = get_user_model().objects.filter(email=user_email).first()
+        if existing_local_user and sociallogin.user and sociallogin.user.pk != existing_local_user.pk:
+            sociallogin.user = existing_local_user
+
+        # Ignorar si es un inicio de sesión de cuenta vinculada existente (ya vinculada)
+        if sociallogin.is_existing:
+            return
 
         logger.info(f"Procesando login social para email: {user_email}")
 
@@ -94,7 +103,33 @@ class PanAccessSocialAccountAdapter(DefaultSocialAccountAdapter):
             return
 
         except SubscriberEmailRegistry.DoesNotExist:
-            logger.info(f"Email no registrado: {user_email}. Procediendo a creación automática en PanAccess.")
+            logger.info(
+                f"Email no registrado en SubscriberEmailRegistry: {user_email}. "
+                "Verificando si el suscriptor ya existe y, si es necesario, aprovisionando."
+            )
+
+            # Caso: ya existe el suscriptor en BD local (ListOfSubscriber) pero
+            # falta el registro del email en SubscriberEmailRegistry.
+            # En ese caso NO llamamos a create_subscriber_in_panaccess para evitar
+            # el error por duplicado; en su lugar, creamos el registro y seguimos.
+            existing_subscriber = (
+                ListOfSubscriber.objects.filter(emails__iexact=user_email).first()
+            )
+            if existing_subscriber and existing_subscriber.code:
+                SubscriberEmailRegistry.objects.update_or_create(
+                    email=user_email,
+                    defaults={
+                        'subscriber_code': existing_subscriber.code,
+                        'has_purchased': False,
+                    },
+                )
+                logger.info(
+                    "SubscriberEmailRegistry creado/actualizado desde ListOfSubscriber: "
+                    "%s -> %s",
+                    user_email,
+                    existing_subscriber.code,
+                )
+                return
             
             # Extraer nombres de la cuenta social
             extra_data = sociallogin.account.extra_data

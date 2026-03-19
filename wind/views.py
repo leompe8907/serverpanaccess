@@ -15,3 +15,14 @@ def login_test_view(request):
         'google_client_id': google_client_id,
     }
     return render(request, 'wind/login_test.html', context)
+
+
+def login_facebook_test_view(request):
+    """
+    Página de prueba para iniciar sesión con Facebook (SDK JS) y consumir el endpoint REST.
+    """
+    facebook_app_id = settings.SOCIALACCOUNT_PROVIDERS['facebook']['APP']['client_id']
+    context = {
+        'facebook_app_id': facebook_app_id,
+    }
+    return render(request, 'wind/login_test_facebook.html', context)
