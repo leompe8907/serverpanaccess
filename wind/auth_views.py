@@ -50,8 +50,48 @@ class GoogleLoginView(SocialLoginView):
             response.data['panaccess_credentials'] = panaccess_credentials
             
         except SubscriberEmailRegistry.DoesNotExist:
-            logger.warning(f"No se encontraron credenciales para el usuario {user.email}")
-            response.data['panaccess_credentials'] = None
+            # Si por alguna razón no existe el registro, intentamos crear el suscriptor
+            # usando el mismo flujo del endpoint create-subscriber/.
+            try:
+                logger.warning(
+                    "No se encontró SubscriberEmailRegistry para %s. "
+                    "Intentando crear suscriptor automáticamente.",
+                    user.email,
+                )
+                from wind.adapters import create_subscriber_in_panaccess
+
+                result = create_subscriber_in_panaccess(
+                    email=user.email,
+                    first_name=user.first_name or (user.email.split("@")[0] if user.email else ""),
+                    last_name=user.last_name or "Social Login",
+                    auto_generate_code=True,
+                    comment="Creado vía Google Social Login (auto-recovery)",
+                )
+
+                # Reintentar la lectura del registro tras la creación
+                registry = SubscriberEmailRegistry.objects.get(email=user.email)
+                subscriber_code = registry.subscriber_code
+                login_info = CallGetSubscriberLoginInfo(subscriber_code=subscriber_code)
+
+                response.data['panaccess_credentials'] = {
+                    'login1': login_info.get('login1'),
+                    'password': login_info.get('password'),
+                    'login2': login_info.get('login2', ''),
+                    'subscriberCode': subscriber_code,
+                }
+
+                # Adjuntar información del flujo de creación si existe
+                response.data['subscriber_provisioning'] = {
+                    'create_subscriber_result': result,
+                }
+            except Exception as e:
+                logger.error(
+                    "No se pudieron obtener/crear credenciales PanAccess para %s: %s",
+                    user.email,
+                    str(e),
+                    exc_info=True,
+                )
+                response.data['panaccess_credentials'] = None
         except Exception as e:
             logger.error(f"Error obteniendo credenciales de PanAccess para la vista: {str(e)}")
             response.data['panaccess_credentials'] = None

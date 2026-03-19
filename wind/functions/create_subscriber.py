@@ -401,6 +401,10 @@ def create_subscriber_view(request):
                 'comment': data.get('comment')
             }
         }
+
+        # Salidas del flujo de asignación (license block -> smartcards -> producto)
+        assigned_smartcards = None
+        product_add_result = None
         
         # Agregar información de contactos a la respuesta
         if contacts_added:
@@ -466,6 +470,7 @@ def create_subscriber_view(request):
                         # Obtener smartcards actualizadas
                         updated_smartcards = found_subscriber_updated.get("smartcards")
                         logger.info(f"[DB] Smartcards actualizadas desde PanAccess: {updated_smartcards}")
+                        assigned_smartcards = updated_smartcards
                         
                         # Actualizar solo el campo smartcards en la BD local
                         try:
@@ -517,15 +522,35 @@ def create_subscriber_view(request):
                                     
                                     if product_response.get('success'):
                                         logger.info(f"[Products] Producto {product_id} agregado exitosamente a {len(updated_smartcards)} smartcards")
+                                        product_add_result = {
+                                            'success': True,
+                                            'productId': product_id,
+                                            'expiryTime': expiry_time_str,
+                                            'smartcards_count': len(updated_smartcards),
+                                        }
                                     else:
                                         error_msg = product_response.get('errorMessage', 'Error desconocido')
                                         logger.error(f"[Products] Error al agregar producto a smartcards: {error_msg}")
+                                        product_add_result = {
+                                            'success': False,
+                                            'productId': product_id,
+                                            'expiryTime': expiry_time_str,
+                                            'errorMessage': error_msg,
+                                        }
                                         
                                 except Exception as e:
                                     logger.error(f"[Products] Excepción al agregar productos a smartcards: {str(e)}", exc_info=True)
                                     # No fallar el proceso completo si esto falla
+                                    product_add_result = {
+                                        'success': False,
+                                        'errorMessage': str(e),
+                                    }
                             else:
                                 logger.info(f"[Products] No hay smartcards asociadas para agregar productos")
+                                product_add_result = {
+                                    'success': False,
+                                    'errorMessage': 'No hay smartcards asociadas para agregar productos',
+                                }
                         except ListOfSubscriber.DoesNotExist:
                             logger.warning(f"[DB] Suscriptor {subscriber_code} no encontrado en BD local para actualizar smartcards")
                         except Exception as e:
@@ -552,6 +577,10 @@ def create_subscriber_view(request):
             response_data['license_block_added'] = False
             response_data['license_block_error'] = license_block_error
             response_data['message'] += '. No se pudo agregar el license block.'
+
+        # Exponer smartcards y resultado de producto en la respuesta (para el flujo social)
+        response_data['assigned_smartcards'] = assigned_smartcards
+        response_data['product_add_result'] = product_add_result
         
         return Response(response_data, status=status.HTTP_201_CREATED)
         

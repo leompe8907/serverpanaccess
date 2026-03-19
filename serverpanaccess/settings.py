@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 from celery.schedules import crontab, timedelta
 from dotenv import load_dotenv
-from appConfig import DjangoConfig
+from appConfig import DjangoConfig, SocialConfig
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -32,6 +32,7 @@ if sys.platform == 'win32':
 
 # Validar las configuraciones
 DjangoConfig.validate()
+SocialConfig.validate()
 
 
 # Quick-start development settings - unsuitable for production
@@ -443,8 +444,20 @@ SOCIALACCOUNT_PROVIDERS = {
     'google': {
         'SCOPE': ['profile', 'email'],
         'APP': {
-            'client_id': os.getenv('GOOGLE_CLIENT_ID'),
-            'secret': os.getenv('GOOGLE_CLIENT_SECRET'),
+            'client_id': SocialConfig.GOOGLE_CLIENT_ID,
+            'secret': SocialConfig.GOOGLE_CLIENT_SECRET,
+            'key': '',
+        },
+    },
+    'facebook': {
+        'METHOD': 'oauth2',
+        'SCOPE': ['email', 'public_profile'],
+        'FIELDS': ['id', 'email', 'first_name', 'last_name', 'name'],
+        'VERIFIED_EMAIL': False,
+        'VERSION': 'v20.0',
+        'APP': {
+            'client_id': SocialConfig.FACEBOOK_APP_ID,
+            'secret': SocialConfig.FACEBOOK_APP_SECRET,
             'key': '',
         },
     },
