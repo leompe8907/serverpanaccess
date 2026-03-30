@@ -17,6 +17,7 @@ from wind.views import login_test_view
 from wind.auth_views import GoogleLoginView
 from wind.views import login_facebook_test_view
 from wind.auth_views import FacebookLoginView
+from wind.views import register_view
 
 urlpatterns = [
     # Autenticación Social vía REST API (Token de Google a JWT Django)
@@ -30,6 +31,9 @@ urlpatterns = [
     
     # Página de prueba: Iniciar sesión con Facebook (SDK JS)
     path('login-test-facebook/', login_facebook_test_view, name='login_test_facebook'),
+    
+    # Registro web (formulario usable)
+    path('register/', register_view, name='register_web'),
     # Autenticación PanAccess legada
     path('login/', login, name='login'),
     path('logged-in/', logged_in_view, name='logged_in'),
