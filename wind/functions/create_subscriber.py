@@ -11,6 +11,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework import status
 from django.utils import timezone
+from django.core.signing import TimestampSigner
 
 from wind.serializers import CreateSubscriberSerializer
 from wind.services import get_panaccess
@@ -18,6 +19,7 @@ from wind.exceptions import PanAccessException
 from wind.utils.subscriber_code_generator import generate_unique_subscriber_code, validate_subscriber_code_uniqueness
 from wind.models import SubscriberEmailRegistry
 from wind.utils.email_validation import validate_email_for_registration
+from wind.utils.phone_validation import normalize_phone
 
 from appConfig import PanaccessConfig
 
@@ -79,6 +81,19 @@ def create_subscriber_view(request):
     # Normalizar email
     email_normalized = email.lower().strip()
     logger.info(f"Validando email normalizado: '{email_normalized}'")
+
+    # Normalizar y validar teléfono (si se proporciona)
+    phone_normalized = ""
+    if data.get("phone"):
+        try:
+            default_region = (request.data.get("countryCode") or "DO").upper()
+            phone_normalized = normalize_phone(data.get("phone"), default_region=default_region)
+        except ValueError:
+            return Response({
+                'success': False,
+                'message': 'Datos inválidos',
+                'errors': {'phone': ['Teléfono inválido. Verifica el formato e inténtalo de nuevo.']}
+            }, status=status.HTTP_400_BAD_REQUEST)
     
     # 3. Validar code Y email en paralelo contra la base de datos
     from wind.models import ListOfSubscriber
@@ -364,19 +379,19 @@ def create_subscriber_view(request):
             logger.error(f"Excepción al agregar email: {str(e)}", exc_info=True)
         
         # Agregar teléfono si está presente
-        if data.get('phone'):
+        if phone_normalized:
             try:
-                logger.info(f"Agregando teléfono {data.get('phone')} al suscriptor {subscriber_code}")
+                logger.info(f"Agregando teléfono {phone_normalized} al suscriptor {subscriber_code}")
                 contact_params = {
                     'code': subscriber_code,  # PanAccess espera 'code', no 'subscriberCode'
                     'type': 'phone',  # Parámetros planos según documentación SOAP
                     'isBusiness': False,
-                    'contact': data.get('phone')
+                    'contact': phone_normalized
                 }
                 contact_response = panaccess.call('addContactToSubscriber', contact_params)
                 
                 if contact_response.get('success'):
-                    contacts_added.append({'type': 'phone', 'value': data.get('phone')})
+                    contacts_added.append({'type': 'phone', 'value': phone_normalized})
                     logger.info(f"Teléfono agregado exitosamente")
                 else:
                     error_msg = contact_response.get('errorMessage', 'Error desconocido')
@@ -563,11 +578,19 @@ def create_subscriber_view(request):
                     # No fallar el proceso completo si esto falla
             else:
                 license_block_error = license_response.get('errorMessage', 'Error desconocido')
-                logger.error(f"[LicenseBlock] Error al agregar license block: {license_block_error}")
+                # Error de negocio (ej: no hay licencias disponibles) -> tratar como warning
+                if isinstance(license_block_error, str) and "txt_not_enough_streaming_licenses" in license_block_error:
+                    logger.warning(f"[LicenseBlock] No hay licencias disponibles: {license_block_error}")
+                else:
+                    logger.error(f"[LicenseBlock] Error al agregar license block: {license_block_error}")
                 
         except Exception as e:
             license_block_error = str(e)
-            logger.error(f"[LicenseBlock] Excepción al agregar license block: {str(e)}", exc_info=True)
+            # Si es un caso esperado (licencias), no lo reportamos como error ruidoso con traceback.
+            if "txt_not_enough_streaming_licenses" in license_block_error:
+                logger.warning(f"[LicenseBlock] No hay licencias disponibles: {license_block_error}")
+            else:
+                logger.error(f"[LicenseBlock] Excepción al agregar license block: {str(e)}", exc_info=True)
         
         # Agregar información de license block a la respuesta
         if license_block_success:
@@ -577,6 +600,13 @@ def create_subscriber_view(request):
             response_data['license_block_added'] = False
             response_data['license_block_error'] = license_block_error
             response_data['message'] += '. No se pudo agregar el license block.'
+
+        # Link firmado (corto) para mostrar credenciales inmediatamente tras registro.
+        # Incluye estado de provisión (license block) para mostrar mensaje al usuario.
+        signer = TimestampSigner(salt="wind.credentials")
+        payload = f"{subscriber_code}|{int(bool(response_data.get('license_block_added')))}|{(response_data.get('license_block_error') or '')}"
+        token = signer.sign(payload)
+        response_data["credentials_url"] = f"/wind/credentials/?t={token}"
 
         # Exponer smartcards y resultado de producto en la respuesta (para el flujo social)
         response_data['assigned_smartcards'] = assigned_smartcards

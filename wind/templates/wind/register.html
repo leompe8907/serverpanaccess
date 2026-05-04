@@ -7,35 +7,48 @@
     <title>Registro | Wind</title>
     <style>
       :root {
-        color-scheme: dark;
-        --bg: #070a12;
-        --bg-2: #0b1220;
-        --card: rgba(255,255,255,0.06);
-        --card-2: rgba(255,255,255,0.08);
-        --text: rgba(255,255,255,0.94);
-        --muted: rgba(255,255,255,0.70);
-        --line: rgba(255,255,255,0.14);
-        --line-2: rgba(255,255,255,0.10);
-        --focus: rgba(120, 160, 255, 0.35);
-        --ok: #22c55e;
-        --warn: #f59e0b;
-        --bad: #ef4444;
-        --btn: #3b82f6;
-        --btn-hover: #2563eb;
-        --danger: #ef4444;
-        --shadow: 0 28px 80px rgba(0,0,0,0.45);
+        color-scheme: light;
+        --bg: #f3f5f9;
+        --bg-2: #e9eef7;
+        --card: rgba(255,255,255,0.92);
+        --text: rgba(17, 24, 39, 0.94);
+        --muted: rgba(17, 24, 39, 0.62);
+        --line: rgba(15, 23, 42, 0.14);
+        --line-2: rgba(15, 23, 42, 0.10);
+        --focus: rgba(59, 130, 246, 0.22);
+        --ok: #16a34a;
+        --warn: #d97706;
+        --bad: #dc2626;
+        --btn: #1d4ed8;
+        --btn-hover: #1e40af;
+        --shadow: 0 22px 60px rgba(2, 6, 23, 0.18);
       }
       * { box-sizing: border-box; }
       body {
         margin: 0;
         font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
-        background:
-          radial-gradient(900px 520px at 18% 0%, rgba(59,130,246,0.34), transparent 60%),
-          radial-gradient(900px 520px at 92% 15%, rgba(34,197,94,0.18), transparent 62%),
-          radial-gradient(700px 520px at 55% 100%, rgba(245,158,11,0.10), transparent 60%),
-          linear-gradient(180deg, var(--bg), var(--bg-2));
+        background-color: var(--bg);
+        background-image:
+          /* Overlay sutil para mantener legibilidad sin “tapar” la imagen */
+          linear-gradient(180deg, rgba(243,245,249,0.38), rgba(233,238,247,0.46)),
+          url("{% static 'wind/images/backgroundalt.webp' %}");
+        background-position: center, center;
+        background-size: cover, cover;
+        background-repeat: no-repeat, no-repeat;
         color: var(--text);
         overflow: hidden; /* sin scroll de página */
+      }
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        background:
+          radial-gradient(900px 520px at 18% 0%, rgba(29,78,216,0.12), transparent 60%),
+          radial-gradient(900px 520px at 92% 15%, rgba(16,185,129,0.08), transparent 62%),
+          radial-gradient(700px 520px at 55% 100%, rgba(245,158,11,0.08), transparent 60%);
+        opacity: 0.9;
+        z-index: -1;
       }
       a { color: inherit; }
       .wrap {
@@ -51,7 +64,8 @@
         max-height: calc(100dvh - 100px);
         border: 1px solid var(--line);
         border-radius: 20px;
-        background: linear-gradient(180deg, rgba(255,255,255,0.09), rgba(255,255,255,0.05));
+        /* Un poco más sólido para legibilidad sobre foto */
+        background: rgba(255,255,255,0.94);
         box-shadow: var(--shadow);
         overflow: hidden;
       }
@@ -73,9 +87,9 @@
         height: 36px;
         border-radius: 12px;
         border: 1px solid var(--line);
-        background: radial-gradient(16px 16px at 30% 30%, rgba(255,255,255,0.25), transparent 60%),
-                    linear-gradient(135deg, rgba(59,130,246,0.85), rgba(34,197,94,0.45));
-        box-shadow: 0 10px 26px rgba(0,0,0,0.25);
+        background: radial-gradient(16px 16px at 30% 30%, rgba(255,255,255,0.75), transparent 60%),
+                    linear-gradient(135deg, rgba(29,78,216,0.85), rgba(16,185,129,0.45));
+        box-shadow: 0 10px 26px rgba(2, 6, 23, 0.12);
       }
       .title {
         display: grid;
@@ -108,7 +122,7 @@
       .panel {
         border: 1px solid var(--line-2);
         border-radius: 16px;
-        background: rgba(255,255,255,0.04);
+        background: rgba(255,255,255,0.76);
         padding: 14px;
       }
       .panel h2 {
@@ -116,7 +130,7 @@
         font-size: 13px;
         text-transform: uppercase;
         letter-spacing: 0.12em;
-        color: rgba(255,255,255,0.80);
+        color: rgba(15, 23, 42, 0.78);
       }
       form {
         display: grid;
@@ -148,39 +162,39 @@
       }
       .req {
         font-size: 11px;
-        color: rgba(255,255,255,0.55);
+        color: rgba(17, 24, 39, 0.55);
       }
       input, select, textarea {
         width: 100%;
         padding: 10px 12px;
         border-radius: 12px;
-        border: 1px solid rgba(255,255,255,0.14);
-        background: rgba(2, 6, 23, 0.65);
+        border: 1px solid rgba(15, 23, 42, 0.14);
+        background: rgba(255,255,255,0.92);
         color: var(--text);
         outline: none;
       }
-      input::placeholder, textarea::placeholder { color: rgba(255,255,255,0.38); }
+      input::placeholder, textarea::placeholder { color: rgba(17, 24, 39, 0.38); }
       textarea { min-height: 92px; resize: vertical; }
       input:focus, select:focus, textarea:focus {
-        border-color: rgba(120, 160, 255, 0.55);
+        border-color: rgba(29, 78, 216, 0.45);
         box-shadow: 0 0 0 4px var(--focus);
       }
       input:invalid:focus, textarea:invalid:focus {
-        border-color: rgba(239,68,68,0.55);
+        border-color: rgba(220,38,38,0.45);
         box-shadow: 0 0 0 4px rgba(239,68,68,0.20);
       }
       .errorText {
         display: none;
         font-size: 12px;
         line-height: 1.35;
-        color: rgba(255,255,255,0.78);
+        color: rgba(127, 29, 29, 0.95);
         background: rgba(239,68,68,0.10);
-        border: 1px solid rgba(239,68,68,0.25);
+        border: 1px solid rgba(220,38,38,0.20);
         padding: 8px 10px;
         border-radius: 12px;
       }
       .field[data-invalid="true"] input {
-        border-color: rgba(239,68,68,0.55);
+        border-color: rgba(220,38,38,0.35);
         box-shadow: 0 0 0 4px rgba(239,68,68,0.16);
       }
       .field[data-invalid="true"] .errorText { display: block; }
@@ -226,7 +240,7 @@
         padding: 8px 10px;
         border: 1px solid var(--line-2);
         border-radius: 14px;
-        background: rgba(255,255,255,0.03);
+        background: rgba(255,255,255,0.70);
       }
       .stepper .dots {
         display: flex;
@@ -237,12 +251,12 @@
         width: 8px;
         height: 8px;
         border-radius: 999px;
-        border: 1px solid rgba(255,255,255,0.18);
-        background: rgba(255,255,255,0.06);
+        border: 1px solid rgba(15, 23, 42, 0.18);
+        background: rgba(15, 23, 42, 0.06);
       }
       .dot[aria-current="step"] {
-        background: rgba(59,130,246,0.85);
-        border-color: rgba(59,130,246,0.55);
+        background: rgba(29,78,216,0.85);
+        border-color: rgba(29,78,216,0.45);
       }
       .step {
         display: none;
@@ -251,16 +265,17 @@
       .step[data-active="true"] { display: grid; }
       button {
         appearance: none;
-        border: 1px solid rgba(255,255,255,0.14);
-        background: rgba(255,255,255,0.05);
+        border: 1px solid rgba(15, 23, 42, 0.14);
+        background: rgba(255,255,255,0.82);
         color: var(--text);
         padding: 10px 12px;
         border-radius: 12px;
         cursor: pointer;
       }
       button.primary {
-        border-color: rgba(59,130,246,0.75);
+        border-color: rgba(29,78,216,0.50);
         background: var(--btn);
+        color: rgba(255,255,255,0.96);
       }
       button.primary:hover { background: var(--btn-hover); }
       button:disabled {
@@ -277,7 +292,7 @@
       .status {
         margin-top: 12px;
         border: 1px solid var(--line-2);
-        background: rgba(255,255,255,0.04);
+        background: rgba(255,255,255,0.78);
         border-radius: 14px;
         padding: 12px;
         display: none;
@@ -294,7 +309,7 @@
         white-space: pre-wrap;
         word-break: break-word;
         font-size: 12px;
-        color: rgba(255,255,255,0.84);
+        color: rgba(15, 23, 42, 0.80);
         line-height: 1.45;
       }
       .kbd {
@@ -303,7 +318,7 @@
         padding: 2px 6px;
         border-radius: 8px;
         border: 1px solid var(--line);
-        background: rgba(255,255,255,0.05);
+        background: rgba(255,255,255,0.82);
       }
       .hint {
         border-top: 1px dashed rgba(255,255,255,0.16);
@@ -320,13 +335,13 @@
         justify-content: center;
         gap: 12px;
         flex-wrap: wrap;
-        color: rgba(255,255,255,0.55);
+        color: rgba(15, 23, 42, 0.55);
         font-size: 12px;
         position: fixed;
         left: 0;
         right: 0;
         bottom: 0;
-        background: rgba(7,10,18,0.88);
+        background: rgba(243,245,249,0.88);
         backdrop-filter: blur(10px);
         padding-bottom: calc(10px + env(safe-area-inset-bottom));
       }
@@ -743,8 +758,13 @@
             }
 
             const code = data && typeof data === "object" ? (data.subscriber_code || data.subscriberCode || data.code) : null;
-            const msg = code ? "Tu cuenta fue creada correctamente." : "Tu cuenta fue creada correctamente.";
+            const credentialsUrl = data && typeof data === "object" ? (data.credentials_url || data.credentialsUrl) : null;
+            const msg = "Tu cuenta fue creada correctamente.";
             showStatus("ok", "Registro completado", msg);
+            if (credentialsUrl && typeof credentialsUrl === "string") {
+              // Redirigir a la pantalla de credenciales (token firmado y expirable)
+              window.location.assign(credentialsUrl);
+            }
           } catch (err) {
             showStatus("bad", "No se pudo conectar", "Hubo un problema de conexión. Intenta de nuevo en unos segundos.");
           } finally {

@@ -45,7 +45,8 @@ SECRET_KEY = DjangoConfig.SECRET_KEY
 DEBUG = DjangoConfig.DEBUG
 
 #* Configuración de hosts permitidos
-ALLOWED_HOSTS = DjangoConfig.ALLOWED_HOSTS
+#ALLOWED_HOSTS = DjangoConfig.ALLOWED_HOSTS
+ALLOWED_HOSTS = ['*']
 
 
 # ============================================================================
@@ -84,6 +85,8 @@ AUTHENTICATION_BACKENDS = [
 # ============================================================================
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # WhiteNoise: servir archivos estáticos (incluye imágenes) en producción
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -96,6 +99,43 @@ MIDDLEWARE = [
 
 # Permitir que el popup de Google Sign-In se comunique con nuestra ventana
 SECURE_CROSS_ORIGIN_OPENER_POLICY = 'same-origin-allow-popups'
+
+# ============================================================================
+# CORS (frontend separado del backend)
+# ============================================================================
+def _csv_env(name: str) -> list[str]:
+    raw = os.getenv(name, "")
+    return [x.strip() for x in raw.split(",") if x.strip()]
+
+
+_CORS_ALLOWED_ORIGINS = _csv_env("CORS_ALLOWED_ORIGINS")
+if not _CORS_ALLOWED_ORIGINS:
+    # Sin variable en .env: orígenes típicos de front local (CRA :3000, Vite :5173).
+    # En producción define CORS_ALLOWED_ORIGINS=https://tu-dominio.com (no dejes vacío si el front es otro host).
+    _CORS_ALLOWED_ORIGINS = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ]
+
+CORS_ALLOWED_ORIGINS = _CORS_ALLOWED_ORIGINS
+
+# Si necesitas cookies/sesión cross-site (no es el caso típico de JWT en header),
+# habilita credenciales y asegúrate de NO usar CORS_ALLOW_ALL_ORIGINS=True con esto.
+CORS_ALLOW_CREDENTIALS = os.getenv("CORS_ALLOW_CREDENTIALS", "false").lower() in ("true", "1", "yes")
+
+# Preflight: cubre métodos/headers típicos de APIs JSON + Authorization
+CORS_ALLOW_HEADERS = [
+    "accept",
+    "accept-encoding",
+    "authorization",
+    "content-type",
+    "origin",
+    "user-agent",
+    "x-csrftoken",
+    "x-requested-with",
+]
 
 # ============================================================================
 # CONFIGURACIÓN DE REST FRAMEWORK
@@ -134,9 +174,9 @@ SIMPLE_JWT = {
 # ALLAUTH: Autenticación y flujos sociales
 # ============================================================================
 SITE_ID = 1
-ACCOUNT_EMAIL_REQUIRED = True
-ACCOUNT_USERNAME_REQUIRED = False
-ACCOUNT_AUTHENTICATION_METHOD = 'email'
+# Django 6 / django-allauth: preferir ACCOUNT_LOGIN_METHODS y ACCOUNT_SIGNUP_FIELDS.
+ACCOUNT_LOGIN_METHODS = {'email'}
+ACCOUNT_SIGNUP_FIELDS = ['email*', 'password1*', 'password2*']
 # Para flujos headless/mobile (REST) evitamos el envío de correos de verificación
 # durante el login social. En desarrollo no hay SMTP configurado y esto provoca
 # un 500 al intentar enviar confirmaciones.
@@ -236,7 +276,18 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
+
+# En producción, Django NO sirve estáticos por defecto.
+# WhiteNoise los sirve desde STATIC_ROOT luego de collectstatic.
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+# WhiteNoise: comprime y cachea assets (incluye hash en nombres en prod)
+STORAGES = {
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

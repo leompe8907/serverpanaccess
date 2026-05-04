@@ -18,6 +18,7 @@ from wind.auth_views import GoogleLoginView
 from wind.views import login_facebook_test_view
 from wind.auth_views import FacebookLoginView
 from wind.views import register_view
+from wind.views import credentials_view
 
 urlpatterns = [
     # Autenticación Social vía REST API (Token de Google a JWT Django)
@@ -34,6 +35,8 @@ urlpatterns = [
     
     # Registro web (formulario usable)
     path('register/', register_view, name='register_web'),
+    # Página para mostrar credenciales recién creadas (token firmado)
+    path('credentials/', credentials_view, name='credentials_web'),
     # Autenticación PanAccess legada
     path('login/', login, name='login'),
     path('logged-in/', logged_in_view, name='logged_in'),
