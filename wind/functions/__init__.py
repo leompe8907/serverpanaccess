@@ -21,6 +21,7 @@ from wind.functions.sync_smartcards import (
     smartcards_stats_view,
 )
 from wind.functions.create_subscriber import create_subscriber_view
+from wind.functions.change_password import change_password_view
 
 # Importar funciones de smartcards para facilitar el acceso
 from wind.functions.getSmartcard import (
@@ -85,4 +86,5 @@ __all__ = [
     'test_call_list_smartcards',
     'smartcards_stats_view',
     'create_subscriber_view',
+    'change_password_view',
 ]

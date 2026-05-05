@@ -82,3 +82,31 @@ class SocialConfig:
             missing.append("FACEBOOK_APP_SECRET")
         if not cls.FACEBOOK_REDIRECT_URI:
             missing.append("FACEBOOK_REDIRECT_URI")
+
+class DatabaseConfig:
+    # Soportar nombres actuales y nombres más explícitos (preferibles en prod).
+    ENGINE = os.getenv('DB_ENGINE', 'ENGINE')
+    NAME = os.getenv('DB_NAME', 'NAME')
+    USER = os.getenv('DB_USER', 'USER')
+    PASSWORD = os.getenv('DB_PASSWORD', 'PASSWORD')
+    HOST = os.getenv('DB_HOST', 'HOST')
+    PORT = os.getenv('DB_PORT', 'PORT')
+
+    @classmethod
+    def configure(cls):
+        missing = []
+        if not cls.ENGINE:
+            missing.append('ENGINE')
+        if not cls.NAME:
+            missing.append('NAME')
+        if not cls.USER:
+            missing.append('USER')
+        if not cls.PASSWORD:
+            missing.append('PASSWORD')
+        if not cls.HOST:
+            missing.append('HOST')
+        if not cls.PORT:
+            missing.append('PORT')
+        if missing:
+            raise ValueError(f'Missing environment variables: {", ".join(missing)}')
+        return cls

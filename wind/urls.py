@@ -12,6 +12,7 @@ from wind.functions import (
     test_call_list_smartcards,
     smartcards_stats_view,
     create_subscriber_view,
+    change_password_view,
 )
 from wind.views import login_test_view
 from wind.auth_views import GoogleLoginView
@@ -67,4 +68,7 @@ urlpatterns = [
     
     # Endpoint para crear suscriptores
     path('create-subscriber/', create_subscriber_view, name='create_subscriber'),
+
+    # Cambio de contraseña (PanAccess)
+    path('change-password/', change_password_view, name='change_password'),
 ]

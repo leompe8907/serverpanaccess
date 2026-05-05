@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 from celery.schedules import crontab, timedelta
 from dotenv import load_dotenv
-from appConfig import DjangoConfig, SocialConfig
+from appConfig import DjangoConfig, SocialConfig, DatabaseConfig
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -33,6 +33,7 @@ if sys.platform == 'win32':
 # Validar las configuraciones
 DjangoConfig.validate()
 SocialConfig.validate()
+DatabaseConfig.configure()
 
 
 # Quick-start development settings - unsuitable for production
@@ -234,13 +235,27 @@ WSGI_APPLICATION = 'serverpanaccess.wsgi.application'
 # }
 
 # SQLite3
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.sqlite3',
+#         'NAME': BASE_DIR / 'db.sqlite3',
+#     }
+# }
+
+
+##############################################################
+# Base de datos PostgreSQL
+##############################################################
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': DatabaseConfig.ENGINE,
+        'NAME': DatabaseConfig.NAME,
+        'USER': DatabaseConfig.USER,
+        'PASSWORD': DatabaseConfig.PASSWORD,
+        'HOST': DatabaseConfig.HOST,
+        'PORT': DatabaseConfig.PORT,
     }
 }
-
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
