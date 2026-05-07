@@ -235,6 +235,9 @@ def fetch_all_subscribers(session_id=None, limit=100):
         for row in rows:
             # Obtener subscriberCode (puede estar vacío según PanAccess)
             subscriber_code = row.get("subscriberCode")
+            if not subscriber_code or not str(subscriber_code).strip():
+                # Evitar crear registros locales "fantasma" (id/code vacíos)
+                continue
             
             # Procesar cada suscriptor extendido
             subscriber_data = {
@@ -367,6 +370,12 @@ def store_all_subscribers_in_chunks(data_batch, chunk_size=100):
             validated = serializer.validated_data
             code = validated.get('code')
             subscriber_id = validated.get('id')
+
+            # No almacenar filas sin identificadores (pueden venir vacías desde PanAccess)
+            if not code or not str(code).strip() or not subscriber_id or not str(subscriber_id).strip():
+                total_errors += 1
+                logger.warning(f"Suscriptor inválido (id/code vacíos). Datos: {item}")
+                continue
             
             # Verificar si existe por código o ID
             existing = None
@@ -453,6 +462,8 @@ def download_subscribers_since_last(session_id=None, limit=100):
         
         for row in rows:
             code = row.get("subscriberCode")
+            if not code or not str(code).strip():
+                continue
             
             if code == highest_code:
                 found = True
@@ -575,14 +586,16 @@ def compare_and_update_all_subscribers(session_id=None, limit=100):
     # 1. Primera llamada para obtener count total de PanAccess
     first_result = CallListExtendedSubscribers(session_id, 0, limit)
     remote_total_count = first_result.get('count', 0)
-    local_total_count = ListOfSubscriber.objects.count()
+    # Comparar solo contra registros locales "válidos" (con code).
+    # En esta tabla pueden existir filas huérfanas con code NULL/"" que no
+    # son comparables contra PanAccess y no deben interferir con el conteo.
+    local_valid_qs = ListOfSubscriber.objects.exclude(code__isnull=True).exclude(code='')
+    local_total_count = local_valid_qs.count()
     
     logger.info(f"Total PanAccess: {remote_total_count}, Total Local: {local_total_count}")
     
     # Obtener todos los códigos locales (una sola vez)
-    local_data = {
-        obj.code: obj for obj in ListOfSubscriber.objects.all() if obj.code
-    }
+    local_data = {obj.code: obj for obj in local_valid_qs if obj.code}
     
     # 2. Procesar por lotes: descargar → comparar → actualizar
     remote_codes = set()
@@ -723,6 +736,7 @@ def compare_and_update_all_subscribers(session_id=None, limit=100):
         
         total_deleted = 0
         credentials_deleted = {}
+        invalid_deleted = 0
         
         if codes_to_delete:
             try:
@@ -735,11 +749,23 @@ def compare_and_update_all_subscribers(session_id=None, limit=100):
                 logger.info(f"Eliminados {total_deleted} suscriptores que ya no existen en PanAccess: {list(codes_to_delete)[:10]}...")
             except Exception as e:
                 logger.error(f"Error eliminando suscriptores: {str(e)}")
+
+        # Limpieza adicional: borrar filas locales inválidas (code/id NULL/"")
+        # que pueden quedar por errores históricos de importación/sync.
+        try:
+            invalid_deleted += ListOfSubscriber.objects.filter(code__isnull=True).delete()[0]
+            invalid_deleted += ListOfSubscriber.objects.filter(code='').delete()[0]
+            invalid_deleted += ListOfSubscriber.objects.filter(id='').delete()[0]
+            if invalid_deleted:
+                logger.info(f"Eliminados {invalid_deleted} suscriptores locales inválidos (code/id vacíos)")
+        except Exception as e:
+            logger.error(f"Error limpiando suscriptores inválidos: {str(e)}")
         
         logger.info(f"Actualizados {total_updated} suscriptores, eliminados {total_deleted} suscriptores")
         return {
             'updated': total_updated,
             'deleted': total_deleted,
+            'invalid_deleted': invalid_deleted,
             'credentials_deleted': credentials_deleted
         }
     

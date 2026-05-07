@@ -66,7 +66,6 @@ def credentials_view(request):
     try:
         login_info = CallGetSubscriberLoginInfo(subscriber_code=subscriber_code)
         context = {
-            "subscriber_code": subscriber_code,
             "login2": login_info.get("login2") or "",
             "login1": login_info.get("login1") or "",
             "password": login_info.get("password") or "",

@@ -13,6 +13,7 @@ from wind.functions import (
     smartcards_stats_view,
     create_subscriber_view,
     change_password_view,
+    full_sync_view,
 )
 from wind.views import login_test_view
 from wind.auth_views import GoogleLoginView
@@ -71,4 +72,7 @@ urlpatterns = [
 
     # Cambio de contraseña (PanAccess)
     path('change-password/', change_password_view, name='change_password'),
+
+    # Sincronización global (todas las tablas)
+    path('full-sync/', full_sync_view, name='full_sync'),
 ]
