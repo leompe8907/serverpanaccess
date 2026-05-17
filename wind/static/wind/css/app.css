@@ -248,6 +248,70 @@ body.app-body::before {
 
 .dash-content {
   padding: 28px 32px 36px;
+  display: grid;
+  gap: 20px;
+}
+
+.dash-module.module-card {
+  padding: 24px 28px;
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(248, 250, 252, 0.88));
+}
+
+.dash-module .module-desc {
+  margin: 0 0 18px;
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.password-form {
+  max-width: 420px;
+}
+
+.dash-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+
+.dash-modal[hidden] {
+  display: none !important;
+}
+
+.dash-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(2px);
+}
+
+.dash-modal-card {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  padding: 24px 26px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+
+.dash-modal-text {
+  margin: 0 0 20px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.dash-modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
 }
 
 .dash-account.module-card {

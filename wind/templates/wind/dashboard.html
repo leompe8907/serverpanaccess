@@ -65,6 +65,54 @@
               </div>
             </div>
           </section>
+
+          <section class="dash-module module-card" id="password-module" hidden>
+            <h3 class="account-section-title">Cambiar contraseña</h3>
+            <p class="module-desc">
+              Se actualizará la contraseña de acceso en PanAccess para tu suscriptor.
+            </p>
+            <form id="password-form" class="app-form password-form" novalidate>
+              <div class="app-field">
+                <label for="new-password">Nueva contraseña</label>
+                <input
+                  id="new-password"
+                  name="newPass"
+                  type="password"
+                  autocomplete="new-password"
+                  minlength="4"
+                  required
+                />
+              </div>
+              <div class="app-field">
+                <label for="confirm-password">Confirmar contraseña</label>
+                <input
+                  id="confirm-password"
+                  type="password"
+                  autocomplete="new-password"
+                  minlength="4"
+                  required
+                />
+              </div>
+              <p id="password-msg" class="app-alert" role="status"></p>
+              <button type="submit" class="app-btn primary" id="btn-password-submit">
+                Actualizar contraseña
+              </button>
+            </form>
+          </section>
+        </div>
+      </div>
+    </div>
+
+    <div id="password-confirm-modal" class="dash-modal" hidden aria-hidden="true">
+      <div class="dash-modal-backdrop" data-modal-close></div>
+      <div class="dash-modal-card" role="dialog" aria-labelledby="pwd-modal-title" aria-modal="true">
+        <h3 id="pwd-modal-title" class="account-section-title">¿Cambiar contraseña?</h3>
+        <p class="dash-modal-text">
+          Se actualizará la contraseña de acceso en PanAccess para tu cuenta. ¿Deseas continuar?
+        </p>
+        <div class="dash-modal-actions">
+          <button type="button" class="app-btn ghost" id="pwd-modal-cancel">Cancelar</button>
+          <button type="button" class="app-btn primary" id="pwd-modal-confirm">Sí, cambiar contraseña</button>
         </div>
       </div>
     </div>
@@ -75,6 +123,7 @@
         var greetingEl = document.getElementById("user-greeting");
         var statusEl = document.getElementById("account-status");
         var panelEl = document.getElementById("account-panel");
+        var subscriberCode = null;
         var fieldEls = {
           code: document.getElementById("field-code"),
           name: document.getElementById("field-name"),
@@ -83,6 +132,16 @@
           login2: document.getElementById("field-login2"),
           screens: document.getElementById("field-screens"),
         };
+        var passwordModule = document.getElementById("password-module");
+        var passwordForm = document.getElementById("password-form");
+        var newPasswordInput = document.getElementById("new-password");
+        var confirmPasswordInput = document.getElementById("confirm-password");
+        var passwordMsg = document.getElementById("password-msg");
+        var passwordSubmitBtn = document.getElementById("btn-password-submit");
+        var passwordModal = document.getElementById("password-confirm-modal");
+        var passwordModalConfirm = document.getElementById("pwd-modal-confirm");
+        var passwordModalCancel = document.getElementById("pwd-modal-cancel");
+        var pendingNewPassword = null;
 
         function displayName(sub) {
           var first = sub.firstName || "";
@@ -113,6 +172,7 @@
         function renderAccount(sub) {
           var name = displayName(sub);
 
+          subscriberCode = sub.code ? String(sub.code) : null;
           greetingEl.textContent = "Hola, " + (name || "usuario");
           setField(fieldEls.code, sub.code);
           setField(fieldEls.name, name);
@@ -120,6 +180,79 @@
           setField(fieldEls.login1, sub.login1);
           setField(fieldEls.login2, sub.login2);
           setField(fieldEls.screens, sub.smartcards_count);
+
+          if (passwordModule) {
+            passwordModule.hidden = !subscriberCode;
+          }
+        }
+
+        function showPasswordMsg(text, type) {
+          if (!passwordMsg) return;
+          passwordMsg.textContent = text;
+          passwordMsg.className = "app-alert show " + (type || "error");
+        }
+
+        function clearPasswordMsg() {
+          if (!passwordMsg) return;
+          passwordMsg.textContent = "";
+          passwordMsg.className = "app-alert";
+        }
+
+        function openPasswordModal() {
+          if (!passwordModal) return;
+          passwordModal.hidden = false;
+          passwordModal.setAttribute("aria-hidden", "false");
+        }
+
+        function closePasswordModal() {
+          if (!passwordModal) return;
+          passwordModal.hidden = true;
+          passwordModal.setAttribute("aria-hidden", "true");
+          pendingNewPassword = null;
+        }
+
+        function submitPasswordChange() {
+          if (!subscriberCode || !pendingNewPassword) {
+            showPasswordMsg("No se pudo identificar tu suscriptor.", "error");
+            return;
+          }
+
+          clearPasswordMsg();
+          if (passwordSubmitBtn) passwordSubmitBtn.disabled = true;
+          if (passwordModalConfirm) passwordModalConfirm.disabled = true;
+
+          WindAuth.fetchApi("/api/v1/profile/password/", {
+            method: "POST",
+            body: JSON.stringify({
+              code: subscriberCode,
+              newPass: pendingNewPassword,
+            }),
+          })
+            .then(function (res) {
+              return res.json().then(function (data) {
+                return { ok: res.ok, data: data };
+              });
+            })
+            .then(function (out) {
+              if (!out.ok || !out.data.success) {
+                var errMsg =
+                  out.data.message ||
+                  (out.data.errors && JSON.stringify(out.data.errors)) ||
+                  "No se pudo actualizar la contraseña";
+                throw new Error(errMsg);
+              }
+              closePasswordModal();
+              if (passwordForm) passwordForm.reset();
+              showPasswordMsg(out.data.message || "Contraseña actualizada correctamente.", "success");
+            })
+            .catch(function (err) {
+              showPasswordMsg(err.message || "Error al cambiar la contraseña", "error");
+            })
+            .finally(function () {
+              pendingNewPassword = null;
+              if (passwordSubmitBtn) passwordSubmitBtn.disabled = false;
+              if (passwordModalConfirm) passwordModalConfirm.disabled = false;
+            });
         }
 
         function showError(msg) {
@@ -169,6 +302,55 @@
         document.getElementById("btn-logout").addEventListener("click", function () {
           WindAuth.logout();
           window.location.href = "/wind/login/";
+        });
+
+        if (passwordForm) {
+          passwordForm.addEventListener("submit", function (e) {
+            e.preventDefault();
+            clearPasswordMsg();
+
+            if (!subscriberCode) {
+              showPasswordMsg("Espera a que cargue tu cuenta.", "error");
+              return;
+            }
+
+            var newPass = newPasswordInput ? newPasswordInput.value : "";
+            var confirmPass = confirmPasswordInput ? confirmPasswordInput.value : "";
+
+            if (!newPass || newPass.length < 4) {
+              showPasswordMsg("La contraseña debe tener al menos 4 caracteres.", "error");
+              return;
+            }
+            if (newPass !== confirmPass) {
+              showPasswordMsg("Las contraseñas no coinciden.", "error");
+              return;
+            }
+
+            pendingNewPassword = newPass;
+            openPasswordModal();
+          });
+        }
+
+        if (passwordModalConfirm) {
+          passwordModalConfirm.addEventListener("click", function () {
+            submitPasswordChange();
+          });
+        }
+
+        if (passwordModalCancel) {
+          passwordModalCancel.addEventListener("click", closePasswordModal);
+        }
+
+        if (passwordModal) {
+          passwordModal.querySelectorAll("[data-modal-close]").forEach(function (el) {
+            el.addEventListener("click", closePasswordModal);
+          });
+        }
+
+        document.addEventListener("keydown", function (e) {
+          if (e.key === "Escape" && passwordModal && !passwordModal.hidden) {
+            closePasswordModal();
+          }
         });
 
         loadAccount();
