@@ -174,6 +174,7 @@ REST_AUTH = {
     'JWT_AUTH_COOKIE': 'wind-auth',
     'JWT_AUTH_REFRESH_COOKIE': 'wind-refresh-token',
     'USER_DETAILS_SERIALIZER': 'wind.serializers.JWTUserDetailsSerializer',
+    'LOGIN_SERIALIZER': 'wind.auth_serializers.PanAccessLoginSerializer',
 }
 
 SIMPLE_JWT = {

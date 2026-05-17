@@ -1,10 +1,41 @@
 """
-Serializers para el flujo de login con Google (ID token desde el cliente).
-Cuando el frontend envía el JWT de Google Identity en 'access_token',
-lo tratamos como 'id_token' para que allauth decodifique el JWT en vez
-de llamar a la API userinfo (que falla con un ID token).
+Serializers para login (PanAccess / Django) y login social (Google).
 """
+from django.conf import settings
+from django.utils.translation import gettext_lazy as _
 from dj_rest_auth.registration.serializers import SocialLoginSerializer
+from dj_rest_auth.serializers import LoginSerializer as BaseLoginSerializer
+from rest_framework import exceptions, serializers
+
+from wind.services.subscriber_auth import authenticate_portal_user
+
+
+class PanAccessLoginSerializer(BaseLoginSerializer):
+    """
+    Login con texto libre (login1, login2, código o email) + contraseña.
+    No exige formato email en el campo de usuario.
+    """
+
+    username = serializers.CharField(label=_("Usuario"), required=True, allow_blank=False)
+    email = serializers.EmailField(required=False, allow_blank=True, write_only=True)
+
+    def validate(self, attrs):
+        username = (attrs.get("username") or "").strip()
+        password = attrs.get("password")
+        if not username or not password:
+            raise exceptions.ValidationError(_("Debe incluir usuario y contraseña."))
+
+        user = authenticate_portal_user(username, password)
+        if not user:
+            raise exceptions.ValidationError(_("No se pudo iniciar sesión con esas credenciales."))
+
+        self.validate_auth_user_status(user)
+
+        if "dj_rest_auth.registration" in settings.INSTALLED_APPS:
+            self.validate_email_verification_status(user, email=user.email)
+
+        attrs["user"] = user
+        return attrs
 
 
 class GoogleIdTokenSocialLoginSerializer(SocialLoginSerializer):
