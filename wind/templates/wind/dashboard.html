@@ -8,72 +8,171 @@
     <link rel="stylesheet" href="{% static 'wind/css/app.css' %}" />
   </head>
   <body class="app-body">
-    <div class="app-wrap" style="align-items: start; padding-top: 28px">
-      <div class="app-card wide">
-        <header class="app-header">
+    <div class="app-wrap dash-page">
+      <div class="app-card wide dash-shell">
+        <header class="app-header dash-header">
           <div class="app-brand">
             <div class="app-logo" aria-hidden="true"></div>
             <div>
               <h1>Mi cuenta</h1>
-              <p id="user-greeting">Cargando…</p>
+              <p id="user-greeting" class="dash-greeting">Cargando…</p>
             </div>
           </div>
           <button type="button" class="app-btn ghost" id="btn-logout">Cerrar sesión</button>
         </header>
 
-        <div class="app-content dash-grid">
-          <section class="app-panel dash-user" id="panel-summary">
-            <h2 style="margin: 0 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted)">
-              Resumen
-            </h2>
-            <strong id="user-name">—</strong>
-            <span id="user-email" style="color: var(--muted); font-size: 14px">—</span>
-            <p style="margin: 8px 0 0; font-size: 13px">
-              Código suscriptor: <strong id="user-code">—</strong>
-            </p>
-          </section>
+        <div class="app-content dash-content">
+          <section class="dash-account module-card" id="account-panel">
+            <p id="account-status" class="account-status" hidden></p>
 
-          <div class="dash-grid modules">
-            <article class="module-card" id="module-password">
-              <span class="badge">Activo</span>
-              <h3>Cambiar contraseña</h3>
-              <p>Actualiza tu contraseña de acceso a PanAccess.</p>
-              <form id="password-form" class="app-form">
-                <div class="app-field">
-                  <label for="newPass">Nueva contraseña</label>
-                  <input id="newPass" type="password" required minlength="4" />
+            <div class="account-layout">
+              <div class="account-column">
+                <h3 class="account-section-title">Tu cuenta</h3>
+                <div class="account-block account-summary">
+              <p class="account-line">
+                <span class="account-line-label">Código de suscriptor:</span>
+                <span id="field-code" class="account-line-value">—</span>
+              </p>
+              <div class="account-line-row">
+                <p class="account-line">
+                  <span class="account-line-label">Nombre:</span>
+                  <span id="field-name" class="account-line-value">—</span>
+                </p>
+                <p class="account-line">
+                  <span class="account-line-label">Correo:</span>
+                  <span id="field-email" class="account-line-value">—</span>
+                </p>
+              </div>
                 </div>
-                <div id="password-alert" class="app-alert"></div>
-                <button type="submit" class="app-btn primary">Guardar contraseña</button>
-              </form>
-            </article>
+              </div>
 
-            <article class="module-card" id="module-products">
-              <span class="badge">Activo</span>
-              <h3>Mis productos</h3>
-              <p>Catálogo sincronizado disponible para tu cuenta.</p>
-              <div id="products-list" style="font-size: 13px; color: var(--muted)">Cargando productos…</div>
-              <button type="button" class="app-btn" id="btn-reload-products" style="margin-top: 10px">Actualizar lista</button>
-            </article>
-
-            <article class="module-card disabled" id="module-purchase">
-              <span class="badge">Próximamente</span>
-              <h3>Comprar paquete</h3>
-              <p>Contratación de paquetes y recargas desde el portal.</p>
-              <button type="button" class="app-btn" disabled>No disponible aún</button>
-            </article>
-
-            <article class="module-card disabled" id="module-more">
-              <span class="badge">Extensible</span>
-              <h3>Más módulos</h3>
-              <p>Aquí podrás añadir facturación, soporte, dispositivos y otros servicios.</p>
-            </article>
-          </div>
+              <div class="account-column">
+                <h3 class="account-section-title">Detalles de la cuenta</h3>
+                <div class="account-block account-details-block">
+              <p class="account-line">
+                <span class="account-line-label">Usuario de acceso:</span>
+                <span id="field-login1" class="account-line-value">—</span>
+              </p>
+              <p class="account-line">
+                <span class="account-line-label">Usuario de acceso alternativo:</span>
+                <span id="field-login2" class="account-line-value">—</span>
+              </p>
+              <p class="account-line">
+                <span class="account-line-label">Número de pantallas:</span>
+                <span id="field-screens" class="account-line-value">—</span>
+              </p>
+                </div>
+              </div>
+            </div>
+          </section>
         </div>
       </div>
     </div>
 
     <script src="{% static 'wind/js/auth-store.js' %}"></script>
-    <script src="{% static 'wind/js/dashboard.js' %}"></script>
+    <script>
+      (function () {
+        var greetingEl = document.getElementById("user-greeting");
+        var statusEl = document.getElementById("account-status");
+        var panelEl = document.getElementById("account-panel");
+        var fieldEls = {
+          code: document.getElementById("field-code"),
+          name: document.getElementById("field-name"),
+          email: document.getElementById("field-email"),
+          login1: document.getElementById("field-login1"),
+          login2: document.getElementById("field-login2"),
+          screens: document.getElementById("field-screens"),
+        };
+
+        function displayName(sub) {
+          var first = sub.firstName || "";
+          var last = sub.lastName || "";
+          var combined = (first + " " + last).trim();
+          return combined || sub.fullName || "";
+        }
+
+        function displayValue(value) {
+          if (value === null || value === undefined || value === "") return "—";
+          return String(value);
+        }
+
+        function setField(el, value) {
+          if (el) el.textContent = displayValue(value);
+        }
+
+        function setLoading(loading) {
+          if (panelEl) panelEl.classList.toggle("is-loading", loading);
+        }
+
+        function getSubscriber(data) {
+          if (data.subscriber) return data.subscriber;
+          if (data.profile && data.profile.subscriber) return data.profile.subscriber;
+          return null;
+        }
+
+        function renderAccount(sub) {
+          var name = displayName(sub);
+
+          greetingEl.textContent = "Hola, " + (name || "usuario");
+          setField(fieldEls.code, sub.code);
+          setField(fieldEls.name, name);
+          setField(fieldEls.email, sub.emails);
+          setField(fieldEls.login1, sub.login1);
+          setField(fieldEls.login2, sub.login2);
+          setField(fieldEls.screens, sub.smartcards_count);
+        }
+
+        function showError(msg) {
+          greetingEl.textContent = "Error";
+          statusEl.hidden = false;
+          statusEl.textContent = msg;
+          statusEl.className = "account-status account-status-error";
+        }
+
+        function loadAccount() {
+          if (!window.WindAuth || !WindAuth.isLoggedIn()) {
+            window.location.href = "/wind/login/";
+            return;
+          }
+
+          setLoading(true);
+
+          fetch("/api/v1/profile/me/", { headers: WindAuth.authHeaders(false) })
+            .then(function (res) {
+              if (res.status === 401) {
+                WindAuth.logout();
+                window.location.href = "/wind/login/?session=expired";
+                throw new Error("Sesión expirada");
+              }
+              return res.json().then(function (data) {
+                return { ok: res.ok, data: data };
+              });
+            })
+            .then(function (out) {
+              if (!out.ok || !out.data.success) {
+                throw new Error(out.data.message || "No se pudo cargar la cuenta");
+              }
+              var sub = getSubscriber(out.data);
+              if (!sub) {
+                throw new Error("La API no devolvió subscriber");
+              }
+              statusEl.hidden = true;
+              renderAccount(sub);
+              setLoading(false);
+            })
+            .catch(function (err) {
+              showError(err.message || "Error al cargar");
+              setLoading(false);
+            });
+        }
+
+        document.getElementById("btn-logout").addEventListener("click", function () {
+          WindAuth.logout();
+          window.location.href = "/wind/login/";
+        });
+
+        loadAccount();
+      })();
+    </script>
   </body>
 </html>

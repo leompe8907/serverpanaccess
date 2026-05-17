@@ -1,7 +1,7 @@
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
-from wind.models import ListOfProducts, ListOfSubscriber, SubscriberEmailRegistry
+from wind.models import ListOfProducts
 from wind.serializers import ListOfProductsSerializer
 
 User = get_user_model()
@@ -24,24 +24,20 @@ class ProfileMeSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_subscriber_code(self, obj):
-        try:
-            return SubscriberEmailRegistry.objects.get(email=obj.email).subscriber_code
-        except SubscriberEmailRegistry.DoesNotExist:
-            return None
+        from wind.services.subscriber_catalog import resolve_subscriber_code_for_user
+
+        return resolve_subscriber_code_for_user(obj)
 
     def get_subscriber(self, obj):
+        from wind.services.subscriber_catalog import build_subscriber_detail_payload
+
         code = self.get_subscriber_code(obj)
         if not code:
             return None
-        sub = ListOfSubscriber.objects.filter(code=code).first()
-        if not sub:
+        try:
+            return build_subscriber_detail_payload(code, refresh_if_missing=True)
+        except Exception:
             return None
-        return {
-            "code": sub.code,
-            "firstName": sub.firstName,
-            "lastName": sub.lastName,
-            "emails": sub.emails,
-        }
 
 
 class ProfilePasswordSerializer(serializers.Serializer):

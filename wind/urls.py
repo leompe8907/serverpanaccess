@@ -15,7 +15,7 @@ from wind.functions import (
     change_password_view,
     full_sync_view,
 )
-from wind.views import login_test_view, login_page_view, dashboard_view
+from wind.views import login_test_view, login_page_view, dashboard_view, subscriber_test_view
 from wind.auth_views import GoogleLoginView
 from wind.views import login_facebook_test_view
 from wind.auth_views import FacebookLoginView
@@ -27,6 +27,7 @@ urlpatterns = [
     path('', login_page_view, name='home'),
     path('login/', login_page_view, name='login'),
     path('dashboard/', dashboard_view, name='dashboard'),
+    path('subscriber-test/', subscriber_test_view, name='subscriber_test'),
 
     # Autenticación Social vía REST API (Token de Google a JWT Django)
     path('auth/google/', GoogleLoginView.as_view(), name='google_login_api'),

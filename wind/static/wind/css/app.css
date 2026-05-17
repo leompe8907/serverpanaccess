@@ -229,6 +229,151 @@ body.app-body::before {
 }
 
 /* Dashboard */
+.dash-page {
+  align-items: start;
+  padding: 36px 20px 48px;
+}
+
+.dash-shell {
+  border-radius: 24px;
+}
+
+.dash-header {
+  padding: 24px 28px;
+}
+
+.dash-greeting {
+  font-size: 14px;
+}
+
+.dash-content {
+  padding: 28px 32px 36px;
+}
+
+.dash-account.module-card {
+  padding: 28px 32px 32px;
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(248, 250, 252, 0.88));
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.9) inset;
+}
+
+.account-layout {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: space-around;
+  gap: 28px;
+}
+
+.account-column {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+@media (min-width: 720px) {
+  .account-column + .account-column {
+    border-left: 1px solid var(--line-2);
+    padding-left: 40px;
+  }
+
+  .account-summary {
+    margin-bottom: 0;
+    padding-bottom: 0;
+    border-bottom: none;
+  }
+
+  .account-summary .account-line-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.account-block {
+  display: grid;
+  gap: 16px;
+}
+
+.account-summary {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+@media (max-width: 719px) {
+  .account-summary {
+    margin-bottom: 28px;
+    padding-bottom: 28px;
+    border-bottom: 1px solid var(--line-2);
+  }
+}
+
+.account-section-title {
+  margin: 0 0 18px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text);
+}
+
+.account-line {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.account-line-row {
+  display: grid;
+  gap: 16px 32px;
+}
+
+@media (min-width: 640px) {
+  .account-line-row {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.account-line-label {
+  color: var(--muted);
+  font-weight: 500;
+  margin-right: 6px;
+}
+
+.account-line-value {
+  font-weight: 600;
+  color: var(--text);
+  word-break: break-word;
+}
+
+.dash-account.is-loading .account-line-value {
+  color: transparent;
+  background: linear-gradient(90deg, var(--line-2) 0%, rgba(15, 23, 42, 0.06) 50%, var(--line-2) 100%);
+  background-size: 200% 100%;
+  animation: account-shimmer 1.2s ease-in-out infinite;
+  border-radius: 6px;
+  min-width: 4rem;
+  display: inline-block;
+}
+
+@keyframes account-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+.account-details-block {
+  gap: 14px;
+}
+
+.account-status {
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-size: 14px;
+}
+
 .dash-grid {
   display: grid;
   gap: 14px;
@@ -289,4 +434,92 @@ body.app-body::before {
   display: flex;
   justify-content: center;
   min-height: 44px;
+}
+
+.section-label {
+  margin: 0 0 10px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+/* .account-name / .account-email definidos en bloque dashboard (.account-hero) */
+
+.account-status-error {
+  color: var(--bad);
+  font-size: 13px;
+  margin: 0 0 8px;
+}
+
+.subscriber-details {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line-2);
+  font-size: 13px;
+}
+
+.subscriber-details-loading,
+.subscriber-details-empty {
+  margin: 0;
+  color: var(--muted);
+}
+
+.subscriber-details-title {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+}
+
+.subscriber-details-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.subscriber-detail-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 38%) 1fr;
+  gap: 8px 12px;
+  align-items: baseline;
+}
+
+.subscriber-detail-label {
+  color: var(--muted);
+}
+
+.subscriber-detail-value {
+  font-weight: 600;
+  word-break: break-word;
+}
+
+@media (max-width: 520px) {
+  .subscriber-detail-row {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+
+  .dash-content {
+    padding: 20px 18px 28px;
+  }
+
+  .dash-account.module-card {
+    padding: 22px 20px 24px;
+  }
+
+  .dash-header {
+    padding: 18px 20px;
+    flex-wrap: wrap;
+  }
+
+  .account-line-row {
+    grid-template-columns: 1fr;
+  }
+
+  .account-column + .account-column {
+    border-left: none;
+    padding-left: 0;
+  }
 }

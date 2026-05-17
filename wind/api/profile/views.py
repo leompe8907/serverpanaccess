@@ -6,35 +6,47 @@ from rest_framework.decorators import api_view, permission_classes, throttle_cla
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from wind.api.profile.serializers import (
-    ProfileMeSerializer,
-    ProfilePasswordSerializer,
-    ProfileProductSerializer,
-)
+from wind.api.profile.serializers import ProfilePasswordSerializer
 from wind.exceptions import PanAccessException
-from wind.models import ListOfProducts, SubscriberEmailRegistry
 from wind.permissions import IsOwnerSubscriber
 from wind.services import get_panaccess
+from wind.services.subscriber_catalog import (
+    build_subscriber_detail_payload,
+    build_subscriber_products_payload,
+    resolve_subscriber_code_for_user,
+)
 from wind.throttles import ProfileThrottle
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
 
 
-def _registry_for_user(user):
-    try:
-        return SubscriberEmailRegistry.objects.get(email=user.email)
-    except SubscriberEmailRegistry.DoesNotExist:
-        return None
-
-
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 @throttle_classes([ProfileThrottle])
 def profile_me_view(request):
-    """Datos del usuario autenticado y suscriptor vinculado."""
-    serializer = ProfileMeSerializer(request.user)
-    return Response({"success": True, "profile": serializer.data})
+    """Datos del suscriptor PanAccess vinculado al usuario autenticado."""
+    subscriber_code = resolve_subscriber_code_for_user(request.user)
+    if not subscriber_code:
+        return Response(
+            {
+                "success": False,
+                "message": "No hay suscriptor vinculado a este usuario.",
+            },
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    subscriber = build_subscriber_detail_payload(subscriber_code)
+    if not subscriber:
+        return Response(
+            {
+                "success": False,
+                "message": "No se encontró información del suscriptor.",
+            },
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    return Response({"success": True, "subscriber": subscriber})
 
 
 @api_view(["POST"])
@@ -85,11 +97,11 @@ def profile_password_view(request):
 @throttle_classes([ProfileThrottle])
 def profile_products_view(request):
     """
-    Lista productos del catálogo local (paginado).
-    Filtrado por suscriptor específico: por implementar cuando exista relación directa.
+    Smartcards del suscriptor autenticado y productos asociados a cada una
+  (desde ListOfSmartcards + catálogo ListOfProducts).
     """
-    registry = _registry_for_user(request.user)
-    if not registry:
+    subscriber_code = resolve_subscriber_code_for_user(request.user)
+    if not subscriber_code:
         return Response(
             {
                 "success": False,
@@ -98,26 +110,39 @@ def profile_products_view(request):
             status=status.HTTP_404_NOT_FOUND,
         )
 
-    qs = ListOfProducts.objects.filter(deleted=False).order_by("productId")
-    page = request.query_params.get("page", "1")
-    try:
-        page_size = min(int(request.query_params.get("page_size", 20)), 100)
-    except (TypeError, ValueError):
-        page_size = 20
+    payload = build_subscriber_products_payload(subscriber_code)
+    return Response({"success": True, **payload})
 
-    from django.core.paginator import Paginator
 
-    paginator = Paginator(qs, page_size)
-    page_obj = paginator.get_page(page)
-    serializer = ProfileProductSerializer(page_obj.object_list, many=True)
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+@throttle_classes([ProfileThrottle])
+def profile_subscriber_view(request):
+    """Datos del suscriptor PanAccess vinculado (ListOfSubscriber + sync si falta)."""
+    subscriber_code = resolve_subscriber_code_for_user(request.user)
+    if not subscriber_code:
+        return Response(
+            {
+                "success": False,
+                "message": "No hay suscriptor vinculado a este usuario.",
+            },
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    detail = build_subscriber_detail_payload(subscriber_code)
+    if not detail:
+        return Response(
+            {
+                "success": False,
+                "message": "No se encontró información del suscriptor. Ejecuta sincronización.",
+            },
+            status=status.HTTP_404_NOT_FOUND,
+        )
 
     return Response(
         {
             "success": True,
-            "subscriber_code": registry.subscriber_code,
-            "count": paginator.count,
-            "page": page_obj.number,
-            "total_pages": paginator.num_pages,
-            "results": serializer.data,
+            "subscriber_code": subscriber_code,
+            "subscriber": detail,
         }
     )

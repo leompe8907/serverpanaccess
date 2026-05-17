@@ -26,7 +26,12 @@ def login_page_view(request):
 
 def dashboard_view(request):
     """Área de usuario autenticado (JWT en el navegador)."""
-    return render(request, 'wind/dashboard.html')
+    return render(request, "wind/dashboard.html")
+
+
+def subscriber_test_view(request):
+    """Página de prueba: solo muestra subscriber de /api/v1/profile/me/ con logs."""
+    return render(request, "wind/subscriber_test.html")
 
 
 def login_test_view(request):

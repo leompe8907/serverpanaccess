@@ -20,11 +20,10 @@ class IsOwnerSubscriber(BasePermission):
         if not code:
             return False
 
-        from wind.models import SubscriberEmailRegistry
+        from wind.services.subscriber_catalog import resolve_subscriber_code_for_user
 
-        try:
-            registry = SubscriberEmailRegistry.objects.get(email=request.user.email)
-        except SubscriberEmailRegistry.DoesNotExist:
+        subscriber_code = resolve_subscriber_code_for_user(request.user)
+        if not subscriber_code:
             return False
 
-        return registry.subscriber_code == code
+        return subscriber_code == code
