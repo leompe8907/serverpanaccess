@@ -220,19 +220,25 @@ class PanAccessClient:
                 
                 if not success:
                     error_message = json_response.get("errorMessage", "Error desconocido")
+                    error_code = (
+                        json_response.get("errorCode")
+                        or json_response.get("error_code")
+                        or json_response.get("code")
+                    )
                     logger.error(f"Llamada '{func_name}' falló: {error_message}")
-                    
-                    # Si el error es de sesión, limpiar sessionId
+
                     if "session" in error_message.lower() or "logged" in error_message.lower():
-                        logger.warning(f"Error de sesión detectado para '{func_name}', limpiando sessionId")
-                        self.session_id = None
-                        raise PanAccessSessionError(
-                            f"Error de sesión: {error_message}"
+                        logger.warning(
+                            "Error de sesión detectado para '%s', limpiando sessionId",
+                            func_name,
                         )
-                    
+                        self.session_id = None
+                        raise PanAccessSessionError(f"Error de sesión: {error_message}")
+
                     raise PanAccessAPIError(
                         f"Error en la respuesta de PanAccess: {error_message}",
-                        status_code=response.status_code
+                        status_code=response.status_code,
+                        error_code=error_code,
                     )
                 
                 # Log del resultado exitoso (resumido)

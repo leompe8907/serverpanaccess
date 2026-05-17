@@ -10,12 +10,14 @@ Objetivo: con una sola llamada, dejar consistentes las tablas locales con PanAcc
 
 import logging
 
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
+import os
+
+from rest_framework.decorators import api_view, permission_classes, throttle_classes
+from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 from rest_framework import status
 
-from wind.exceptions import PanAccessException
+from wind.throttles import SyncAdminThrottle
 from wind.models import ListOfProducts, ListOfSmartcards, SubscriberLoginInfo, ListOfSubscriber
 from wind.functions.getSubscriber import compare_and_update_all_subscribers
 from wind.functions.getProducts import sync_products, compare_and_update_all_products, CallListOfProducts
@@ -113,64 +115,99 @@ def _cleanup_login_info() -> dict:
     return {"remaining": total, "deleted_orphans": deleted}
 
 
+def run_full_sync(limit: int = 100) -> dict:
+    """
+    Ejecuta la sincronización global (uso en Celery o admin con HTTP habilitado).
+
+    Returns:
+        dict con resultados por dominio (suscriptores, productos, smartcards, login info).
+    """
+    result_subscribers = compare_and_update_all_subscribers(session_id=None, limit=limit)
+
+    result_products_new = sync_products(session_id=None, limit=limit)
+    compare_and_update_all_products(session_id=None, limit=limit)
+    result_products_delete = _delete_extra_products(limit=limit)
+
+    result_smartcards_new = sync_smartcards(session_id=None, limit=limit)
+    compare_and_update_all_smartcards(session_id=None, limit=limit)
+    result_smartcards_delete = _delete_extra_smartcards(limit=limit)
+
+    result_login_info = sync_subscribers_login_info(session_id=None, limit=None)
+    result_login_cleanup = _cleanup_login_info()
+
+    return {
+        "success": True,
+        "message": "Sincronización global completada",
+        "limit_used": limit,
+        "subscribers": result_subscribers,
+        "products": {
+            "sync_result": result_products_new,
+            "delete_extras": result_products_delete,
+        },
+        "smartcards": {
+            "sync_result": result_smartcards_new,
+            "delete_extras": result_smartcards_delete,
+        },
+        "subscriber_login_info": {
+            "sync_result": result_login_info,
+            "cleanup": result_login_cleanup,
+        },
+    }
+
+
+def _full_sync_http_enabled() -> bool:
+    return os.getenv("FULL_SYNC_HTTP_ENABLED", "false").lower() in ("true", "1", "yes")
+
+
 @api_view(["GET", "POST"])
-@permission_classes([AllowAny])
+@permission_classes([IsAdminUser])
+@throttle_classes([SyncAdminThrottle])
 def full_sync_view(request):
     """
-    Ejecuta una sincronización global.
+    Encola el full-sync correctivo (staff + FULL_SYNC_HTTP_ENABLED=true).
 
-    Parámetros opcionales (GET o POST):
-    - limit: tamaño de página para llamadas a PanAccess (default 100, max 1000)
+    Por defecto usar Celery Beat nocturno (`full_sync_task`).
     """
-    limit = _parse_limit(request, default=100)
+    if not _full_sync_http_enabled():
+        return Response(
+            {
+                "success": False,
+                "message": (
+                    "Full-sync HTTP deshabilitado. Use Celery Beat (tarea full_sync_task) "
+                    "o defina FULL_SYNC_HTTP_ENABLED=true solo en entornos controlados."
+                ),
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )
 
-    try:
-        result_subscribers = compare_and_update_all_subscribers(session_id=None, limit=limit)
-
-        # Productos: crear nuevos + actualizar existentes + borrar sobrantes
-        result_products_new = sync_products(session_id=None, limit=limit)
-        compare_and_update_all_products(session_id=None, limit=limit)
-        result_products_delete = _delete_extra_products(limit=limit)
-
-        # Smartcards: crear nuevas + actualizar existentes + borrar sobrantes
-        result_smartcards_new = sync_smartcards(session_id=None, limit=limit)
-        compare_and_update_all_smartcards(session_id=None, limit=limit)
-        result_smartcards_delete = _delete_extra_smartcards(limit=limit)
-
-        # Login info: actualizar/crear para todos + limpiar huérfanos
-        result_login_info = sync_subscribers_login_info(session_id=None, limit=None)
-        result_login_cleanup = _cleanup_login_info()
-
+    if request.method == "GET":
         return Response(
             {
                 "success": True,
-                "message": "Sincronización global completada",
-                "limit_used": limit,
-                "subscribers": result_subscribers,
-                "products": {
-                    "sync_result": result_products_new,
-                    "delete_extras": result_products_delete,
-                },
-                "smartcards": {
-                    "sync_result": result_smartcards_new,
-                    "delete_extras": result_smartcards_delete,
-                },
-                "subscriber_login_info": {
-                    "sync_result": result_login_info,
-                    "cleanup": result_login_cleanup,
-                },
+                "message": "Use POST para encolar la sincronización global.",
+                "beat_hour": os.getenv("CELERY_FULL_SYNC_HOUR", "0"),
+                "beat_minute": os.getenv("CELERY_FULL_SYNC_MINUTE", "0"),
             },
             status=status.HTTP_200_OK,
         )
 
-    except PanAccessException as e:
-        logger.error("Error PanAccess en full sync: %s", str(e), exc_info=True)
+    limit = _parse_limit(request, default=100)
+    try:
+        from wind.tasks import full_sync_task
+
+        async_result = full_sync_task.delay(limit=limit)
         return Response(
-            {"success": False, "error_type": type(e).__name__, "message": str(e)},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            {
+                "success": True,
+                "message": "Full-sync encolado",
+                "task_id": async_result.id,
+                "limit": limit,
+                "status_url": f"/api/v1/tasks/{async_result.id}/",
+            },
+            status=status.HTTP_202_ACCEPTED,
         )
     except Exception as e:
-        logger.error("Error inesperado en full sync: %s", str(e), exc_info=True)
+        logger.exception("Error encolando full-sync")
         return Response(
             {"success": False, "error_type": "Exception", "message": str(e)},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,

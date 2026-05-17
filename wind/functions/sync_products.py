@@ -4,10 +4,12 @@ Vista para sincronizar productos desde PanAccess.
 Endpoint que ejecuta el proceso de sincronización completo de productos.
 """
 import logging
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
+from rest_framework.decorators import api_view, permission_classes, throttle_classes
+from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 from rest_framework import status
+
+from wind.throttles import SyncAdminThrottle
 
 from wind.functions.getProducts import (
     sync_products,
@@ -21,7 +23,8 @@ logger = logging.getLogger(__name__)
 
 
 @api_view(['GET', 'POST'])
-@permission_classes([AllowAny])
+@permission_classes([IsAdminUser])
+@throttle_classes([SyncAdminThrottle])
 def sync_products_view(request):
     """
     Vista para sincronizar productos desde PanAccess.
@@ -88,7 +91,8 @@ def sync_products_view(request):
 
 
 @api_view(['GET', 'POST'])
-@permission_classes([AllowAny])
+@permission_classes([IsAdminUser])
+@throttle_classes([SyncAdminThrottle])
 def test_call_list_products(request):
     """
     Vista de prueba para llamar directamente a getListOfProducts.
@@ -178,7 +182,8 @@ def test_call_list_products(request):
 
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([IsAdminUser])
+@throttle_classes([SyncAdminThrottle])
 def products_stats_view(request):
     """
     Vista para obtener estadísticas de productos en la base de datos.

@@ -16,7 +16,8 @@ from wind.exceptions import (
     PanAccessAuthenticationError,
     PanAccessConnectionError,
     PanAccessTimeoutError,
-    PanAccessAPIError
+    PanAccessAPIError,
+    PanAccessSessionError,
 )
 
 logger = logging.getLogger(__name__)
@@ -178,33 +179,27 @@ class PanAccessSingleton:
     def call(self, func_name: str, parameters: dict = None, timeout: int = 60) -> dict:
         """
         Llama a una función de la API PanAccess (thread-safe).
-        
-        Usa el sessionId que está siendo mantenido por la validación periódica.
-        Si por alguna razón no hay sesión, intenta obtenerla (fallback de seguridad).
-        
-        Nota: La validación periódica mantiene la sesión activa automáticamente,
-        por lo que normalmente no será necesario validar aquí.
-        
-        Args:
-            func_name: Nombre de la función a llamar
-            parameters: Parámetros de la función
-            timeout: Timeout en segundos
-        
-        Returns:
-            Respuesta de la API
-        
-        Raises:
-            PanAccessException: Si hay algún error
+
+        Si la sesión caducó durante la llamada, reautentica y reintenta una vez.
+        Errores de permisos (no_access) no provocan relogin.
         """
-        # Fallback de seguridad: si no hay sesión, intentar obtenerla
-        # (normalmente la validación periódica ya la mantiene activa)
-        if func_name != 'login' and func_name != 'cvLoggedIn':
+        try:
+            return self._call_once(func_name, parameters, timeout)
+        except PanAccessSessionError:
+            logger.warning(
+                "Sesión PanAccess inválida en '%s', reautenticando y reintentando...",
+                func_name,
+            )
+            with self._session_lock:
+                self.client.session_id = None
+                self.ensure_session()
+            return self._call_once(func_name, parameters, timeout)
+
+    def _call_once(self, func_name: str, parameters: dict = None, timeout: int = 60) -> dict:
+        if func_name not in ('login', 'cvLoggedIn'):
             if not self.client.session_id:
                 logger.warning("No hay sesión activa, obteniendo una...")
                 self.ensure_session()
-        
-        # Usar el cliente para hacer la llamada
-        # El cliente ya tiene el sessionId y lo agregará automáticamente
         return self.client.call(func_name, parameters, timeout)
     
     def get_client(self) -> PanAccessClient:

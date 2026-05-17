@@ -4,10 +4,12 @@ Vista para sincronizar suscriptores desde PanAccess.
 Endpoint que ejecuta el proceso de sincronización completo de suscriptores.
 """
 import logging
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
+from rest_framework.decorators import api_view, permission_classes, throttle_classes
+from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 from rest_framework import status
+
+from wind.throttles import SyncAdminThrottle
 
 from wind.functions.getSubscriber import (
     sync_subscribers,
@@ -21,7 +23,8 @@ logger = logging.getLogger(__name__)
 
 
 @api_view(['GET', 'POST'])
-@permission_classes([AllowAny])
+@permission_classes([IsAdminUser])
+@throttle_classes([SyncAdminThrottle])
 def sync_subscribers_view(request):
     """
     Vista para sincronizar suscriptores desde PanAccess.
@@ -86,7 +89,8 @@ def sync_subscribers_view(request):
 
 
 @api_view(['GET', 'POST'])
-@permission_classes([AllowAny])
+@permission_classes([IsAdminUser])
+@throttle_classes([SyncAdminThrottle])
 def compare_and_update_subscribers_view(request):
     """
     Vista para comparar y actualizar suscriptores existentes desde PanAccess.

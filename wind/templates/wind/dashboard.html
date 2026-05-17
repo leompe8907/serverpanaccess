@@ -1,0 +1,79 @@
+﻿{% load static %}
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mi cuenta | Wind</title>
+    <link rel="stylesheet" href="{% static 'wind/css/app.css' %}" />
+  </head>
+  <body class="app-body">
+    <div class="app-wrap" style="align-items: start; padding-top: 28px">
+      <div class="app-card wide">
+        <header class="app-header">
+          <div class="app-brand">
+            <div class="app-logo" aria-hidden="true"></div>
+            <div>
+              <h1>Mi cuenta</h1>
+              <p id="user-greeting">Cargando…</p>
+            </div>
+          </div>
+          <button type="button" class="app-btn ghost" id="btn-logout">Cerrar sesión</button>
+        </header>
+
+        <div class="app-content dash-grid">
+          <section class="app-panel dash-user" id="panel-summary">
+            <h2 style="margin: 0 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted)">
+              Resumen
+            </h2>
+            <strong id="user-name">—</strong>
+            <span id="user-email" style="color: var(--muted); font-size: 14px">—</span>
+            <p style="margin: 8px 0 0; font-size: 13px">
+              Código suscriptor: <strong id="user-code">—</strong>
+            </p>
+          </section>
+
+          <div class="dash-grid modules">
+            <article class="module-card" id="module-password">
+              <span class="badge">Activo</span>
+              <h3>Cambiar contraseña</h3>
+              <p>Actualiza tu contraseña de acceso a PanAccess.</p>
+              <form id="password-form" class="app-form">
+                <div class="app-field">
+                  <label for="newPass">Nueva contraseña</label>
+                  <input id="newPass" type="password" required minlength="4" />
+                </div>
+                <div id="password-alert" class="app-alert"></div>
+                <button type="submit" class="app-btn primary">Guardar contraseña</button>
+              </form>
+            </article>
+
+            <article class="module-card" id="module-products">
+              <span class="badge">Activo</span>
+              <h3>Mis productos</h3>
+              <p>Catálogo sincronizado disponible para tu cuenta.</p>
+              <div id="products-list" style="font-size: 13px; color: var(--muted)">Cargando productos…</div>
+              <button type="button" class="app-btn" id="btn-reload-products" style="margin-top: 10px">Actualizar lista</button>
+            </article>
+
+            <article class="module-card disabled" id="module-purchase">
+              <span class="badge">Próximamente</span>
+              <h3>Comprar paquete</h3>
+              <p>Contratación de paquetes y recargas desde el portal.</p>
+              <button type="button" class="app-btn" disabled>No disponible aún</button>
+            </article>
+
+            <article class="module-card disabled" id="module-more">
+              <span class="badge">Extensible</span>
+              <h3>Más módulos</h3>
+              <p>Aquí podrás añadir facturación, soporte, dispositivos y otros servicios.</p>
+            </article>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="{% static 'wind/js/auth-store.js' %}"></script>
+    <script src="{% static 'wind/js/dashboard.js' %}"></script>
+  </body>
+</html>

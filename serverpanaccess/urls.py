@@ -25,6 +25,7 @@ urlpatterns = [
     # Nuevos endpoints de JWT y Autenticación REST
     path('api/auth/', include('dj_rest_auth.urls')),
     path('api/auth/registration/', include('dj_rest_auth.registration.urls')),
+    path('api/v1/', include('wind.api.urls')),
 
     path('wind/', include('wind.urls')),
 ]

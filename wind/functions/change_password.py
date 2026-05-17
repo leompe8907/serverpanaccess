@@ -8,25 +8,30 @@ el proyecto (y la refresca si es necesario).
 """
 
 import logging
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
+from rest_framework.decorators import api_view, permission_classes, throttle_classes
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 
 from wind.services import get_panaccess
 from wind.exceptions import PanAccessException
+from wind.permissions import IsOwnerSubscriber
+from wind.throttles import ProfileThrottle
 
 logger = logging.getLogger(__name__)
 
 
 @api_view(["POST"])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated, IsOwnerSubscriber])
+@throttle_classes([ProfileThrottle])
 def change_password_view(request):
     """
-    Cambia la contraseña en PanAccess.
+    Cambia la contraseña en PanAccess (propio suscriptor).
+
+    Preferir: POST /api/v1/profile/password/
 
     Body JSON:
-      - code: string
+      - code: string (debe coincidir con el suscriptor del usuario JWT)
       - newPass: string
     """
     code = request.data.get("code")

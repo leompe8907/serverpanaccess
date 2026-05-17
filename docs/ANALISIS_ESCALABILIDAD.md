@@ -316,21 +316,21 @@ Roadmap alineado con la intención del equipo:
 
 ## 7. Roadmap sugerido (actualizado)
 
-### Fase 1 — Estabilización (1–2 semanas)
+### Fase 1 — Estabilización (1–2 semanas) ✅
 
-- [ ] Fix `wind/apps.py` (singleton en Daphne/Gunicorn).  
-- [ ] Reintento sesión en `singleton.call()`; unificar `login/` con singleton.  
-- [ ] JWT blacklist o ajuste `SIMPLE_JWT`.  
-- [ ] `ALLOWED_HOSTS` desde `.env`.  
-- [ ] Documentar: `python -m daphne`, `celery worker -Q sync_subscribers`, `celery beat`.  
+- [x] Fix `wind/apps.py` (singleton en Daphne/Gunicorn).  
+- [x] Reintento sesión en `singleton.call()`; unificar `login/` con singleton.  
+- [x] JWT blacklist (`rest_framework_simplejwt.token_blacklist` en `INSTALLED_APPS`).  
+- [x] `ALLOWED_HOSTS` desde `.env` vía `DjangoConfig`.  
+- [x] Documentación: [DESPLIEGUE.md](./DESPLIEGUE.md).  
 
-### Fase 2 — Sync y perfil (2–4 semanas)
+### Fase 2 — Sync y perfil (2–4 semanas) ✅
 
-- [ ] `full_sync_task` + Beat `crontab(hour=0, minute=0)`.  
-- [ ] Proteger o desactivar `full-sync/` HTTP en prod.  
-- [ ] Esqueleto `/api/v1/profile/` (password, datos, productos lectura).  
-- [ ] Auth JWT en `change-password` y sync manual.  
-- [ ] Throttling DRF.  
+- [x] `full_sync_task` + Beat `crontab(hour=0, minute=0)` (configurable vía `.env`).  
+- [x] `full-sync/` HTTP deshabilitado por defecto; staff encola tarea (`202` + `task_id`).  
+- [x] API `/api/v1/profile/` (`me/`, `password/`, `products/`).  
+- [x] JWT + propietario en `change-password`; sync manual solo `IsAdminUser`.  
+- [x] Throttling DRF global + scopes `profile` / `sync_admin`.  
 
 ### Fase 3 — Producción (4–8 semanas)
 

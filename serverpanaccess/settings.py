@@ -46,9 +46,8 @@ SECRET_KEY = DjangoConfig.SECRET_KEY
 #* SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = DjangoConfig.DEBUG
 
-#* Configuración de hosts permitidos
-#ALLOWED_HOSTS = DjangoConfig.ALLOWED_HOSTS
-ALLOWED_HOSTS = ['*']
+# Hosts permitidos desde .env (ej. ALLOWED_HOSTS=localhost,127.0.0.1 o * en dev)
+ALLOWED_HOSTS = DjangoConfig.ALLOWED_HOSTS or ['localhost', '127.0.0.1']
 
 
 # ============================================================================
@@ -72,6 +71,7 @@ INSTALLED_APPS = [
     'allauth.socialaccount.providers.apple',
     'rest_framework.authtoken',
     'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
     'dj_rest_auth',
     'dj_rest_auth.registration',
 ]
@@ -144,13 +144,24 @@ CORS_ALLOW_HEADERS = [
 # CONFIGURACIÓN DE REST FRAMEWORK
 # ============================================================================
 REST_FRAMEWORK = {
-    #* Permisos por defecto para DjangoModelPermissionsOrAnonReadOnly
     'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.DjangoModelPermissionsOrAnonReadOnly'
+        'rest_framework.permissions.DjangoModelPermissionsOrAnonReadOnly',
     ],
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
-    )
+    ),
+    'DEFAULT_THROTTLE_CLASSES': [
+        'wind.throttles.AnonBurstThrottle',
+        'wind.throttles.UserBurstThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': os.getenv('DRF_THROTTLE_ANON', '60/minute'),
+        'user': os.getenv('DRF_THROTTLE_USER', '600/minute'),
+        'profile': os.getenv('DRF_THROTTLE_PROFILE', '120/minute'),
+        'sync_admin': os.getenv('DRF_THROTTLE_SYNC_ADMIN', '30/minute'),
+    },
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 20,
 }
 
 # ============================================================================
@@ -299,12 +310,20 @@ STATIC_URL = '/static/'
 # WhiteNoise los sirve desde STATIC_ROOT luego de collectstatic.
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
-# WhiteNoise: comprime y cachea assets (incluye hash en nombres en prod)
-STORAGES = {
-    "staticfiles": {
-        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
-    },
-}
+# WhiteNoise: en DEBUG sirve estáticos sin manifest (evita 500 tras añadir CSS/JS nuevos).
+# En producción: manifest + hash para cache busting.
+if DEBUG:
+    STORAGES = {
+        "staticfiles": {
+            "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage",
+        },
+    }
+else:
+    STORAGES = {
+        "staticfiles": {
+            "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+        },
+    }
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -344,6 +363,7 @@ CELERY_TIMEZONE = TIME_ZONE
 CELERY_TASK_ROUTES = {
     'wind.tasks.sync_subscribers_task': {'queue': 'sync_subscribers'},
     'wind.tasks.sync_smartcards_task': {'queue': 'sync_subscribers'},
+    'wind.tasks.full_sync_task': {'queue': 'sync_subscribers'},
 }
 
 _SYNC_MINUTES = max(1, _as_int(os.getenv("CELERY_SYNC_MINUTES", "10"), 10))
@@ -365,6 +385,12 @@ else:
     # Modo timedelta: ejecuta cada X minutos desde el inicio de Beat
     _SCHEDULE = timedelta(minutes=_SYNC_MINUTES)
     _SMARTCARD_SCHEDULE = timedelta(minutes=_SMARTCARD_SYNC_MINUTES)
+
+_FULL_SYNC_HOUR = max(0, min(23, _as_int(os.getenv("CELERY_FULL_SYNC_HOUR", "0"), 0)))
+_FULL_SYNC_MINUTE = max(0, min(59, _as_int(os.getenv("CELERY_FULL_SYNC_MINUTE", "0"), 0)))
+_FULL_SYNC_TIME_LIMIT = max(600, _as_int(os.getenv("CELERY_FULL_SYNC_TIME_LIMIT", "3600"), 3600))
+_FULL_SYNC_SOFT_LIMIT = max(540, _as_int(os.getenv("CELERY_FULL_SYNC_SOFT_TIME_LIMIT", "3300"), 3300))
+_FULL_SYNC_ENABLED = os.getenv("CELERY_FULL_SYNC_ENABLED", "true").lower() in ("true", "1", "yes")
 
 CELERY_BEAT_SCHEDULE = {
     "sync-subscribers": {
@@ -388,6 +414,18 @@ CELERY_BEAT_SCHEDULE = {
         "args": (_SYNC_LIMIT,),
     },
 }
+
+if _FULL_SYNC_ENABLED:
+    CELERY_BEAT_SCHEDULE["full-sync-nightly"] = {
+        "task": "wind.tasks.full_sync_task",
+        "schedule": crontab(hour=_FULL_SYNC_HOUR, minute=_FULL_SYNC_MINUTE),
+        "options": {
+            "queue": _SYNC_QUEUE,
+            "soft_time_limit": _FULL_SYNC_SOFT_LIMIT,
+            "time_limit": _FULL_SYNC_TIME_LIMIT,
+        },
+        "kwargs": {"limit": _SYNC_LIMIT},
+    }
 
 # ============================================================================
 # CONFIGURACIÓN DE LOGGING

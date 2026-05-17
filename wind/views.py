@@ -8,6 +8,27 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from wind.functions.getSubscriberLoginInfo import CallGetSubscriberLoginInfo
 
 
+def login_page_view(request):
+    """
+    Página principal de acceso: email/contraseña, registro y login social.
+    """
+    google_client_id = settings.SOCIALACCOUNT_PROVIDERS['google']['APP']['client_id']
+    facebook_app_id = settings.SOCIALACCOUNT_PROVIDERS['facebook']['APP']['client_id']
+    return render(
+        request,
+        'wind/login.html',
+        {
+            'google_client_id': google_client_id,
+            'facebook_app_id': facebook_app_id,
+        },
+    )
+
+
+def dashboard_view(request):
+    """Área de usuario autenticado (JWT en el navegador)."""
+    return render(request, 'wind/dashboard.html')
+
+
 def login_test_view(request):
     """
     Página de prueba para iniciar sesión con Google.

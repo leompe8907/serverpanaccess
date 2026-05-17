@@ -5,6 +5,7 @@ from celery import shared_task
 
 from wind.functions.getSubscriber import sync_subscribers
 from wind.functions.getSmartcard import sync_smartcards
+from wind.functions.full_sync import run_full_sync
 from wind.exceptions import PanAccessException
 from appConfig import RedisConfig
 
@@ -20,7 +21,7 @@ def _as_int(value, default):
 
 @shared_task(
     bind=True,
-    autoretry_for=(PanAccessException, ConnectionError, Exception),
+    autoretry_for=(PanAccessException, ConnectionError),
     retry_backoff=True,
     retry_backoff_max=600,
     retry_jitter=True,
@@ -71,7 +72,7 @@ def sync_subscribers_task(self, limit=None):
 
 @shared_task(
     bind=True,
-    autoretry_for=(PanAccessException, ConnectionError, Exception),
+    autoretry_for=(PanAccessException, ConnectionError),
     retry_backoff=True,
     retry_backoff_max=600,
     retry_jitter=True,
@@ -117,4 +118,39 @@ def sync_smartcards_task(self, limit=None):
             raise
         except Exception:
             logger.exception("💥 [Celery] Error inesperado en sync_smartcards_task")
+            raise
+
+
+@shared_task(
+    bind=True,
+    autoretry_for=(PanAccessException, ConnectionError),
+    retry_backoff=True,
+    retry_backoff_max=600,
+    retry_jitter=True,
+    max_retries=3,
+)
+def full_sync_task(self, limit=None):
+    """
+    Sincronización global correctiva (programar en horario de bajo tráfico, ej. medianoche).
+    """
+    lock_key = "celery:lock:full_sync_task"
+    lock_timeout = int(os.getenv("CELERY_FULL_SYNC_TIME_LIMIT", "3600"))
+
+    with RedisConfig.task_lock(lock_key, timeout=lock_timeout) as acquired:
+        if not acquired:
+            logger.warning("[Celery] full_sync_task ya está ejecutándose, se omite")
+            return {"success": False, "skipped": True, "message": "Task already running"}
+
+        try:
+            env_limit = _as_int(os.getenv("CELERY_SYNC_LIMIT"), None)
+            limit = limit or env_limit or 200
+            logger.info("[Celery] Iniciando full_sync_task con limit=%s", limit)
+            result = run_full_sync(limit=limit)
+            logger.info("[Celery] full_sync_task completada")
+            return result
+        except PanAccessException as exc:
+            logger.error("[Celery] Error PanAccess en full_sync_task: %s", exc)
+            raise
+        except Exception:
+            logger.exception("[Celery] Error inesperado en full_sync_task")
             raise
