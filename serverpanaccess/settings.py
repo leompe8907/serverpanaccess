@@ -311,14 +311,16 @@ STATIC_URL = '/static/'
 # WhiteNoise los sirve desde STATIC_ROOT luego de collectstatic.
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
-# WhiteNoise: en DEBUG sirve estáticos sin manifest (evita 500 tras añadir CSS/JS nuevos).
-# En producción: manifest + hash para cache busting.
+# WhiteNoise: en DEBUG servir desde wind/static/ (finders), sin copia vieja en staticfiles/.
+# En producción: collectstatic + manifest + hash para cache busting.
 if DEBUG:
     STORAGES = {
         "staticfiles": {
-            "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage",
+            "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
         },
     }
+    # Sin esto, WhiteNoise prioriza staticfiles/ (p. ej. app.625403f0f035.css desactualizado).
+    WHITENOISE_USE_FINDERS = True
 else:
     STORAGES = {
         "staticfiles": {

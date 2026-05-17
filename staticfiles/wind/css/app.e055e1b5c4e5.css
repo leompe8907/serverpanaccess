@@ -25,7 +25,7 @@ body.app-body {
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
   background-color: var(--bg);
   background-image: linear-gradient(180deg, rgba(243, 245, 249, 0.38), rgba(233, 238, 247, 0.46)),
-    url("../images/backgroundalt.webp");
+    url("../images/backgroundalt.d572a23bb33d.webp");
   background-position: center, center;
   background-size: cover, cover;
   color: var(--text);
