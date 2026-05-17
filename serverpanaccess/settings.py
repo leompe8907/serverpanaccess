@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 from celery.schedules import crontab, timedelta
 from dotenv import load_dotenv
-from appConfig import DjangoConfig, SocialConfig, DatabaseConfig
+from appConfig import DjangoConfig, SocialConfig, DatabaseConfig, RedisConfig
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -34,6 +34,7 @@ if sys.platform == 'win32':
 DjangoConfig.validate()
 SocialConfig.validate()
 DatabaseConfig.configure()
+RedisConfig.validate()
 
 
 # Quick-start development settings - unsuitable for production
@@ -68,6 +69,7 @@ INSTALLED_APPS = [
     'allauth.socialaccount',
     'allauth.socialaccount.providers.facebook',
     'allauth.socialaccount.providers.google',
+    'allauth.socialaccount.providers.apple',
     'rest_framework.authtoken',
     'rest_framework_simplejwt',
     'dj_rest_auth',
@@ -235,27 +237,27 @@ WSGI_APPLICATION = 'serverpanaccess.wsgi.application'
 # }
 
 # SQLite3
-# DATABASES = {
-#     'default': {
-#         'ENGINE': 'django.db.backends.sqlite3',
-#         'NAME': BASE_DIR / 'db.sqlite3',
-#     }
-# }
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
+    }
+}
 
 
 ##############################################################
 # Base de datos PostgreSQL
 ##############################################################
-DATABASES = {
-    'default': {
-        'ENGINE': DatabaseConfig.ENGINE,
-        'NAME': DatabaseConfig.NAME,
-        'USER': DatabaseConfig.USER,
-        'PASSWORD': DatabaseConfig.PASSWORD,
-        'HOST': DatabaseConfig.HOST,
-        'PORT': DatabaseConfig.PORT,
-    }
-}
+# DATABASES = {
+#     'default': {
+#         'ENGINE': DatabaseConfig.ENGINE,
+#         'NAME': DatabaseConfig.NAME,
+#         'USER': DatabaseConfig.USER,
+#         'PASSWORD': DatabaseConfig.PASSWORD,
+#         'HOST': DatabaseConfig.HOST,
+#         'PORT': DatabaseConfig.PORT,
+#     }
+# }
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
@@ -320,27 +322,21 @@ def _as_int(value, default):
         return default
 
 
-REDIS_HOST = os.getenv("REDIS_HOST", "redis")  # nombre del servicio en Docker
-REDIS_PORT = os.getenv("REDIS_PORT", "6379")
-REDIS_DB = os.getenv("REDIS_DB", "0")
-REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "")
+REDIS_HOST = RedisConfig.HOST
+REDIS_PORT = RedisConfig.PORT
+REDIS_DB = RedisConfig.DB
+REDIS_PASSWORD = RedisConfig.PASSWORD
 
-def _build_redis_url(host, port, db, password):
-    if password:
-        return f"redis://:{password}@{host}:{port}/{db}"
-    return f"redis://{host}:{port}/{db}"
-
-
-_DEFAULT_REDIS_URL = _build_redis_url(REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_PASSWORD)
-
-CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", _DEFAULT_REDIS_URL)
-CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", CELERY_BROKER_URL)
+CELERY_BROKER_URL = RedisConfig.broker_url()
+CELERY_RESULT_BACKEND = RedisConfig.result_backend_url()
+CELERY_TASK_ALWAYS_EAGER = RedisConfig.celery_eager()
+CELERY_TASK_EAGER_PROPAGATES = CELERY_TASK_ALWAYS_EAGER
 CELERY_TASK_TIME_LIMIT = _as_int(os.getenv("CELERY_TASK_TIME_LIMIT", "600"), 600)          # hard limit
 CELERY_TASK_SOFT_TIME_LIMIT = _as_int(os.getenv("CELERY_TASK_SOFT_TIME_LIMIT", "540"), 540)  # aviso previo
 CELERY_WORKER_MAX_TASKS_PER_CHILD = _as_int(os.getenv("CELERY_WORKER_MAX_TASKS_PER_CHILD", "100"), 100)
-# En Windows el pool "prefork" falla con PermissionError/WinError 6 (billiard).
-# "solo" = un solo proceso, estable en Windows; en Linux se puede usar "prefork".
-CELERY_WORKER_POOL = os.getenv("CELERY_WORKER_POOL", "solo" if sys.platform == "win32" else "prefork")
+# Windows: pool "solo" (prefork falla). Linux: "prefork". Override con CELERY_WORKER_POOL.
+CELERY_WORKER_POOL = RedisConfig.celery_worker_pool()
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = not CELERY_TASK_ALWAYS_EAGER
 CELERY_ENABLE_UTC = True
 CELERY_TIMEZONE = TIME_ZONE
 
@@ -528,6 +524,13 @@ SOCIALACCOUNT_PROVIDERS = {
             'client_id': SocialConfig.FACEBOOK_APP_ID,
             'secret': SocialConfig.FACEBOOK_APP_SECRET,
             'key': '',
+        },
+    },
+    'apple': {
+        'APPS': {
+            'client_id': SocialConfig.APPLE_CLIENT_ID,
+            'secret': SocialConfig.APPLE_CLIENT_SECRET,
+            'key': "",
         },
     },
 }
