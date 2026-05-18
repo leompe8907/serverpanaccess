@@ -625,13 +625,13 @@ SOCIALACCOUNT_PROVIDERS = {
             'key': '',
         },
     },
-    'apple': {
-        'APPS': {
-            'client_id': SocialConfig.APPLE_CLIENT_ID,
-            'secret': SocialConfig.APPLE_CLIENT_SECRET,
-            'key': "",
-        },
-    },
+    # 'apple': {
+    #     'APPS': {
+    #         'client_id': SocialConfig.APPLE_CLIENT_ID,
+    #         'secret': SocialConfig.APPLE_CLIENT_SECRET,
+    #         'key': "",
+    #     },
+    # },
 }
 
 # Redirección tras login/logout con Google (allauth)
