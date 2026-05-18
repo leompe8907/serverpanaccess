@@ -88,9 +88,9 @@ class SocialConfig:
     FACEBOOK_APP_SECRET = os.getenv("FACEBOOK_APP_SECRET")
     FACEBOOK_REDIRECT_URI = os.getenv("FACEBOOK_REDIRECT_URI")
 
-    APPLE_CLIENT_ID = os.getenv("APPLE_CLIENT_ID")
-    APPLE_CLIENT_SECRET = os.getenv("APPLE_CLIENT_SECRET")
-    APPLE_REDIRECT_URI = os.getenv("APPLE_REDIRECT_URI")
+    # APPLE_CLIENT_ID = os.getenv("APPLE_CLIENT_ID")
+    # APPLE_CLIENT_SECRET = os.getenv("APPLE_CLIENT_SECRET")
+    # APPLE_REDIRECT_URI = os.getenv("APPLE_REDIRECT_URI")
 
     @classmethod
     def validate(cls):
@@ -107,12 +107,12 @@ class SocialConfig:
             missing.append("FACEBOOK_APP_SECRET")
         if not cls.FACEBOOK_REDIRECT_URI:
             missing.append("FACEBOOK_REDIRECT_URI")
-        if not cls.APPLE_CLIENT_ID:
-            missing.append("APPLE_CLIENT_ID")
-        if not cls.APPLE_CLIENT_SECRET:
-            missing.append("APPLE_CLIENT_SECRET")
-        if not cls.APPLE_REDIRECT_URI:
-            missing.append("APPLE_REDIRECT_URI")
+        # if not cls.APPLE_CLIENT_ID:
+        #     missing.append("APPLE_CLIENT_ID")
+        # if not cls.APPLE_CLIENT_SECRET:
+        #     missing.append("APPLE_CLIENT_SECRET")
+        # if not cls.APPLE_REDIRECT_URI:
+        #     missing.append("APPLE_REDIRECT_URI")
 
 class DatabaseConfig:
     # SQLite en dev si DB_ENGINE no indica PostgreSQL.
