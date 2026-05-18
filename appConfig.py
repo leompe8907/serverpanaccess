@@ -115,32 +115,70 @@ class SocialConfig:
             missing.append("APPLE_REDIRECT_URI")
 
 class DatabaseConfig:
-    # Soportar nombres actuales y nombres más explícitos (preferibles en prod).
-    ENGINE = os.getenv('DB_ENGINE', 'ENGINE')
-    NAME = os.getenv('DB_NAME', 'NAME')
-    USER = os.getenv('DB_USER', 'USER')
-    PASSWORD = os.getenv('DB_PASSWORD', 'PASSWORD')
-    HOST = os.getenv('DB_HOST', 'HOST')
-    PORT = os.getenv('DB_PORT', 'PORT')
+    # SQLite en dev si DB_ENGINE no indica PostgreSQL.
+    # Prod/staging: DB_ENGINE=django.db.backends.postgresql
+    ENGINE = _strip_env(os.getenv("DB_ENGINE")) or _strip_env(os.getenv("ENGINE"))
+    NAME = _strip_env(os.getenv("DB_NAME")) or _strip_env(os.getenv("NAME"))
+    USER = _strip_env(os.getenv("DB_USER")) or _strip_env(os.getenv("USER"))
+    PASSWORD = _strip_env(os.getenv("DB_PASSWORD")) or _strip_env(os.getenv("PASSWORD"))
+    HOST = _strip_env(os.getenv("DB_HOST")) or _strip_env(os.getenv("HOST"))
+    PORT = _strip_env(os.getenv("DB_PORT")) or _strip_env(os.getenv("PORT"))
+
+    REPLICA_HOST = _strip_env(os.getenv("DB_REPLICA_HOST"))
+    REPLICA_PORT = _strip_env(os.getenv("DB_REPLICA_PORT"))
+
+    @classmethod
+    def use_postgresql(cls) -> bool:
+        engine = (cls.ENGINE or "").lower()
+        return "postgresql" in engine or engine == "postgres"
 
     @classmethod
     def configure(cls):
+        if not cls.use_postgresql():
+            return cls
         missing = []
         if not cls.ENGINE:
-            missing.append('ENGINE')
+            missing.append("DB_ENGINE")
         if not cls.NAME:
-            missing.append('NAME')
+            missing.append("DB_NAME")
         if not cls.USER:
-            missing.append('USER')
-        if not cls.PASSWORD:
-            missing.append('PASSWORD')
+            missing.append("DB_USER")
+        if cls.PASSWORD is None or cls.PASSWORD == "":
+            missing.append("DB_PASSWORD")
         if not cls.HOST:
-            missing.append('HOST')
+            missing.append("DB_HOST")
         if not cls.PORT:
-            missing.append('PORT')
+            missing.append("DB_PORT")
         if missing:
-            raise ValueError(f'Missing environment variables: {", ".join(missing)}')
+            raise ValueError(f"Missing environment variables: {', '.join(missing)}")
         return cls
+
+    @classmethod
+    def django_default_database(cls) -> dict:
+        cls.configure()
+        db = {
+            "ENGINE": cls.ENGINE,
+            "NAME": cls.NAME,
+            "USER": cls.USER,
+            "PASSWORD": cls.PASSWORD,
+            "HOST": cls.HOST,
+            "PORT": cls.PORT,
+        }
+        conn_max_age = _strip_env(os.getenv("DB_CONN_MAX_AGE"))
+        if conn_max_age:
+            db["CONN_MAX_AGE"] = int(conn_max_age)
+        return db
+
+    @classmethod
+    def django_replica_database(cls) -> dict | None:
+        if not cls.use_postgresql() or not cls.REPLICA_HOST:
+            return None
+        base = cls.django_default_database()
+        return {
+            **base,
+            "HOST": cls.REPLICA_HOST,
+            "PORT": cls.REPLICA_PORT or base.get("PORT"),
+        }
 
 class RedisConfig:
     """

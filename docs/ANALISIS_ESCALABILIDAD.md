@@ -79,7 +79,7 @@ Cuellos de botella principales para **tráfico de usuarios** (no para sync noctu
 | BD prod | PostgreSQL en `.env` / `DatabaseConfig` | Comentada en `settings.py` — activar al desplegar |
 | Cola | Celery 5.6 + Redis (`RedisConfig` centralizado) | Parcial: 2 tareas en beat; `full-sync` pendiente |
 | Estáticos | WhiteNoise | OK |
-| Servidor | WSGI / Daphne | Sin docker/nginx/gunicorn en repo |
+| Servidor | WSGI / Daphne | Despliegue (Docker/Azure) pendiente |
 | Cache | — | **No configurado** |
 
 ### Endpoints principales (`wind/urls.py`)
@@ -245,7 +245,7 @@ Usar `DjangoConfig.ALLOWED_HOSTS` del `.env` en producción.
 | Sin `CACHES` | Redis solo Celery/locks |
 | Celery worker | Debe usar `-Q sync_subscribers` |
 | `CELERY_TASK_ALWAYS_EAGER` | Solo dev sin Redis |
-| Sin Docker/gunicorn en repo | Despliegue manual |
+| Despliegue contenedores | Pendiente; optimización/carga primero |
 | `autoretry_for=(..., Exception)` | Demasiado amplio en tareas Celery |
 
 ---
@@ -332,18 +332,21 @@ Roadmap alineado con la intención del equipo:
 - [x] JWT + propietario en `change-password`; sync manual solo `IsAdminUser`.  
 - [x] Throttling DRF global + scopes `profile` / `sync_admin`.  
 
-### Fase 3 — Producción (4–8 semanas)
+### Fase 3 — Producción y carga (en curso)
 
-- [ ] Activar PostgreSQL en staging/prod; migrar datos.  
-- [ ] `CACHES` Redis; sesión PanAccess en Redis.  
-- [ ] Docker Compose + nginx + gunicorn.  
-- [ ] Sentry + health checks.  
-- [ ] Pruebas de carga (Locust/k6).  
+- [x] PostgreSQL configurable vía `DB_ENGINE` (SQLite sigue en dev).  
+- [x] `CACHES` Redis (`REDIS_CACHE_DB`); sesión PanAccess en Redis (`PANACCESS_SESSION_USE_REDIS`).  
+- [ ] Docker / Azure / nginx — **pendiente** (despliegue; fuera del foco actual).  
+- [x] Sentry opcional (`SENTRY_DSN`); `/health/` y `/ready/`.  
+- [x] Locust básico (`scripts/load/locustfile.py`).  
+- [ ] Optimización y pruebas de carga antes de desplegar — **foco actual**.  
 
-### Fase 4 — Escala y compras
+### Fase 4 — Escala (sin compras; compras más adelante)
 
-- [ ] Módulo compras (cola dedicada).  
-- [ ] Read replica, CDN, circuit breaker PanAccess.  
+- [ ] Módulo compras (cola dedicada) — **pendiente, fuera de alcance actual**.  
+- [x] Read replica opcional (`DB_REPLICA_HOST` + `PrimaryReplicaRouter`).  
+- [x] CDN estáticos (`CDN_STATIC_URL`).  
+- [x] Circuit breaker PanAccess (`PANACCESS_CIRCUIT_BREAKER_ENABLED`).
 
 ---
 

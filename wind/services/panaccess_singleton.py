@@ -10,6 +10,8 @@ import logging
 from typing import Optional
 
 from wind.services.panaccess_client import PanAccessClient
+from wind.services import panaccess_circuit_breaker
+from wind.services import panaccess_session_store
 from wind.utils.panaccess_auth import login, logged_in
 from wind.exceptions import (
     PanAccessException,
@@ -91,6 +93,7 @@ class PanAccessSingleton:
                 self._retry_count = 0
                 self._last_alert_sent = False
                 logger.info("Login exitoso")
+                panaccess_session_store.set_session_id(session_id)
                 return session_id
                 
             except (PanAccessAuthenticationError, PanAccessConnectionError, PanAccessTimeoutError) as e:
@@ -156,6 +159,34 @@ class PanAccessSingleton:
         # - Métricas a sistema de monitoreo
         # - etc.
     
+    def _load_or_authenticate_session(self) -> None:
+        if self.client.session_id:
+            return
+
+        stored = panaccess_session_store.get_session_id()
+        if stored:
+            self.client.session_id = stored
+            return
+
+        if panaccess_session_store.is_enabled():
+            with panaccess_session_store.refresh_lock() as acquired:
+                if not acquired:
+                    stored = panaccess_session_store.get_session_id()
+                    if stored:
+                        self.client.session_id = stored
+                        return
+                if not self.client.session_id:
+                    stored = panaccess_session_store.get_session_id()
+                    if stored:
+                        self.client.session_id = stored
+                    else:
+                        logger.info("No hay sesión, autenticando...")
+                        self.client.session_id = self._authenticate_with_retry()
+            return
+
+        logger.info("No hay sesión, autenticando...")
+        self.client.session_id = self._authenticate_with_retry()
+
     def ensure_session(self):
         """
         Asegura que haya una sesión válida (thread-safe).
@@ -165,11 +196,8 @@ class PanAccessSingleton:
         Solo un thread puede ejecutar el refresh a la vez.
         """
         with self._session_lock:
-            # Verificar si hay sessionId
-            if not self.client.session_id:
-                logger.info("No hay sesión, autenticando...")
-                self.client.session_id = self._authenticate_with_retry()
-                return
+            self._load_or_authenticate_session()
+            return
             
             # NO validar la sesión aquí automáticamente
             # Solo validar si hay un error específico de sesión inválida en una llamada real
@@ -183,17 +211,23 @@ class PanAccessSingleton:
         Si la sesión caducó durante la llamada, reautentica y reintenta una vez.
         Errores de permisos (no_access) no provocan relogin.
         """
-        try:
-            return self._call_once(func_name, parameters, timeout)
-        except PanAccessSessionError:
-            logger.warning(
-                "Sesión PanAccess inválida en '%s', reautenticando y reintentando...",
-                func_name,
-            )
-            with self._session_lock:
-                self.client.session_id = None
-                self.ensure_session()
-            return self._call_once(func_name, parameters, timeout)
+        def _invoke():
+            try:
+                return self._call_once(func_name, parameters, timeout)
+            except PanAccessSessionError:
+                logger.warning(
+                    "Sesión PanAccess inválida en '%s', reautenticando y reintentando...",
+                    func_name,
+                )
+                with self._session_lock:
+                    self.client.session_id = None
+                    panaccess_session_store.clear_session_id()
+                    self.ensure_session()
+                return self._call_once(func_name, parameters, timeout)
+
+        if panaccess_circuit_breaker.circuit_breaker_enabled():
+            return panaccess_circuit_breaker.get_circuit_breaker().execute(_invoke)
+        return _invoke()
 
     def _call_once(self, func_name: str, parameters: dict = None, timeout: int = 60) -> dict:
         if func_name not in ('login', 'cvLoggedIn'):
@@ -217,6 +251,7 @@ class PanAccessSingleton:
         """
         with self._session_lock:
             self.client.session_id = None
+            panaccess_session_store.clear_session_id()
             logger.info("Sesión reseteada")
     
     def _periodic_validation(self):
@@ -244,6 +279,7 @@ class PanAccessSingleton:
                         is_valid = logged_in(self.client.session_id)
                         if not is_valid:
                             logger.info("Sesión caducada, refrescando...")
+                            panaccess_session_store.clear_session_id()
                             self.client.session_id = self._authenticate_with_retry()
                     except (PanAccessConnectionError, PanAccessTimeoutError) as e:
                         # Error de conexión/timeout - no refrescar, solo loguear

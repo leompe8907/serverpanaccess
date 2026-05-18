@@ -171,7 +171,83 @@ Renueva o confirma la sesión del singleton (cuenta de servicio, no usuario fina
 
 ---
 
-## 6. Variables `.env` relevantes (Fase 1)
+## 6. Fase 3 — Preparación para carga y prod (sin contenedores por ahora)
+
+> **Despliegue (Docker, Azure, nginx):** se abordará más adelante. Aquí queda lo que sirve para optimizar y probar carga en local o en un servidor sin Docker.
+
+### 6.1 PostgreSQL (staging/prod)
+
+En `.env` (ver `.env.example`):
+
+```env
+DB_ENGINE=django.db.backends.postgresql
+DB_NAME=wind
+DB_USER=wind
+DB_PASSWORD=...
+DB_HOST=localhost
+DB_PORT=5432
+DB_CONN_MAX_AGE=600
+```
+
+Sin `DB_ENGINE` postgresql se usa **SQLite** (`db.sqlite3`) en desarrollo.
+
+Migrar datos desde SQLite (ejemplo):
+
+```powershell
+python manage.py dumpdata --natural-foreign --natural-primary -e contenttypes -e auth.Permission --indent 2 > backup.json
+# Activar PostgreSQL en .env, luego:
+python manage.py migrate
+python manage.py loaddata backup.json
+```
+
+### 6.2 Caché Redis y sesión PanAccess
+
+```env
+REDIS_CACHE_DB=1
+PANACCESS_SESSION_USE_REDIS=true
+PANACCESS_SESSION_TTL_SECONDS=1500
+```
+
+`REDIS_DB=0` sigue siendo el broker Celery; la caché Django usa otra DB.
+
+### 6.3 Health checks
+
+| URL | Uso |
+|-----|-----|
+| `GET /ready/` | DB + caché (probe ligero antes de enviar tráfico) |
+| `GET /health/` | DB + caché + sesión PanAccess |
+
+### 6.4 Sentry (opcional)
+
+```env
+SENTRY_DSN=https://...
+SENTRY_ENVIRONMENT=production
+SENTRY_TRACES_SAMPLE_RATE=0.1
+```
+
+### 6.5 Pruebas de carga (Locust)
+
+```powershell
+$env:LOCUST_USERNAME="tu_login1"
+$env:LOCUST_PASSWORD="tu_password"
+locust -f scripts/load/locustfile.py --host http://127.0.0.1:8000
+```
+
+Abrir `http://localhost:8089` para la UI de Locust.
+
+---
+
+## 7. Fase 4 — Escala (sin compras)
+
+| Variable | Efecto |
+|----------|--------|
+| `DB_REPLICA_HOST` | Lecturas en réplica PostgreSQL |
+| `CDN_STATIC_URL` | URL base de estáticos en CDN |
+| `PANACCESS_CIRCUIT_BREAKER_ENABLED` | Corta llamadas tras fallos de red/timeout |
+
+---
+
+## 8. Variables `.env` relevantes (Fase 1)
 
 | Variable | Ejemplo | Notas |
 |----------|---------|--------|
@@ -182,7 +258,7 @@ Renueva o confirma la sesión del singleton (cuenta de servicio, no usuario fina
 
 ---
 
-## 7. Orden de arranque recomendado
+## 9. Orden de arranque recomendado
 
 1. Redis  
 2. `python manage.py migrate` (si hubo cambios)  
@@ -192,7 +268,7 @@ Renueva o confirma la sesión del singleton (cuenta de servicio, no usuario fina
 
 ---
 
-## 8. Solución de problemas
+## 10. Solución de problemas
 
 | Problema | Causa habitual | Acción |
 |----------|----------------|--------|

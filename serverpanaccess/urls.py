@@ -17,7 +17,11 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 
+from wind.views_health import health_view, ready_view
+
 urlpatterns = [
+    path('health/', health_view, name='health'),
+    path('ready/', ready_view, name='ready'),
     path('admin/', admin.site.urls),
     # URLs nativas de Allauth para renderizado HTML de providers
     path('accounts/', include('allauth.urls')),

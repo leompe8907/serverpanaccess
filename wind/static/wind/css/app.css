@@ -269,6 +269,71 @@ body.app-body::before {
   max-width: 420px;
 }
 
+.products-list {
+  display: grid;
+  gap: 14px;
+}
+
+.products-placeholder,
+.products-empty {
+  margin: 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.smartcard-card {
+  border: 1px solid var(--line-2);
+  border-radius: 14px;
+  padding: 16px 18px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.smartcard-card-header h4 {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.smartcard-meta {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.product-items {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 10px;
+}
+
+.product-items li {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.04);
+  border: 1px solid var(--line-2);
+  display: grid;
+  gap: 4px;
+}
+
+.product-items strong {
+  font-size: 14px;
+}
+
+.product-desc {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+@media (min-width: 720px) {
+  .products-list {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
 .dash-modal {
   position: fixed;
   inset: 0;

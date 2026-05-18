@@ -99,6 +99,15 @@
               </button>
             </form>
           </section>
+
+          <section class="dash-module module-card" id="products-module" hidden>
+            <h3 class="account-section-title">Productos y pantallas</h3>
+            <p class="module-desc">Smartcards vinculadas a tu suscriptor y productos activos en cada una.</p>
+            <p id="products-status" class="app-alert" role="status"></p>
+            <div id="products-list" class="products-list">
+              <p class="products-placeholder">Cargando productos…</p>
+            </div>
+          </section>
         </div>
       </div>
     </div>
@@ -142,6 +151,17 @@
         var passwordModalConfirm = document.getElementById("pwd-modal-confirm");
         var passwordModalCancel = document.getElementById("pwd-modal-cancel");
         var pendingNewPassword = null;
+        var productsModule = document.getElementById("products-module");
+        var productsList = document.getElementById("products-list");
+        var productsStatus = document.getElementById("products-status");
+
+        function escapeHtml(text) {
+          return String(text)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;");
+        }
 
         function displayName(sub) {
           var first = sub.firstName || "";
@@ -184,6 +204,102 @@
           if (passwordModule) {
             passwordModule.hidden = !subscriberCode;
           }
+          if (productsModule) {
+            productsModule.hidden = !subscriberCode;
+          }
+          if (subscriberCode) {
+            loadProducts();
+          }
+        }
+
+        function showProductsMsg(text, type) {
+          if (!productsStatus) return;
+          productsStatus.textContent = text;
+          productsStatus.className = "app-alert show " + (type || "error");
+        }
+
+        function clearProductsMsg() {
+          if (!productsStatus) return;
+          productsStatus.textContent = "";
+          productsStatus.className = "app-alert";
+        }
+
+        function renderProducts(data) {
+          if (!productsList) return;
+          clearProductsMsg();
+
+          var cards = data.smartcards || [];
+          if (!cards.length) {
+            productsList.innerHTML =
+              '<p class="products-placeholder">No hay pantallas registradas para tu suscriptor.</p>';
+            return;
+          }
+
+          var html = "";
+          var i;
+          for (i = 0; i < cards.length; i++) {
+            var card = cards[i];
+            var title = card.alias || card.sn || "Pantalla";
+            var meta = [];
+            if (card.sn) meta.push("SN: " + card.sn);
+            if (card.stbModel) meta.push(card.stbModel);
+            if (card.disabled) meta.push("Deshabilitada");
+            if (card.blacklisted) meta.push("En lista negra");
+            if (card.pending_sync) meta.push("Sincronización pendiente");
+
+            html += '<article class="smartcard-card">';
+            html += '<header class="smartcard-card-header">';
+            html += "<h4>" + escapeHtml(title) + "</h4>";
+            if (meta.length) {
+              html += '<p class="smartcard-meta">' + escapeHtml(meta.join(" · ")) + "</p>";
+            }
+            html += "</header>";
+
+            var products = card.products || [];
+            if (!products.length) {
+              html += '<p class="products-empty">Sin productos asociados.</p>';
+            } else {
+              html += '<ul class="product-items">';
+              var j;
+              for (j = 0; j < products.length; j++) {
+                var prod = products[j];
+                var prodName = prod.name || ("Producto " + (prod.productId || j + 1));
+                html += "<li>";
+                html += "<strong>" + escapeHtml(prodName) + "</strong>";
+                if (prod.description) {
+                  html += '<span class="product-desc">' + escapeHtml(prod.description) + "</span>";
+                }
+                html += "</li>";
+              }
+              html += "</ul>";
+            }
+            html += "</article>";
+          }
+
+          productsList.innerHTML = html;
+        }
+
+        function loadProducts() {
+          if (!subscriberCode || !productsList) return;
+
+          productsList.innerHTML = '<p class="products-placeholder">Cargando productos…</p>';
+
+          WindAuth.fetchApi("/api/v1/profile/products/", { method: "GET" })
+            .then(function (res) {
+              return res.json().then(function (data) {
+                return { ok: res.ok, data: data };
+              });
+            })
+            .then(function (out) {
+              if (!out.ok || !out.data.success) {
+                throw new Error(out.data.message || "No se pudieron cargar los productos");
+              }
+              renderProducts(out.data);
+            })
+            .catch(function (err) {
+              productsList.innerHTML = "";
+              showProductsMsg(err.message || "Error al cargar productos", "error");
+            });
         }
 
         function showPasswordMsg(text, type) {

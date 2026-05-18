@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 from celery.schedules import crontab, timedelta
 from dotenv import load_dotenv
-from appConfig import DjangoConfig, SocialConfig, DatabaseConfig, RedisConfig
+from appConfig import DjangoConfig, SocialConfig, DatabaseConfig, RedisConfig, _env_bool
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -33,7 +33,8 @@ if sys.platform == 'win32':
 # Validar las configuraciones
 DjangoConfig.validate()
 SocialConfig.validate()
-DatabaseConfig.configure()
+if DatabaseConfig.use_postgresql():
+    DatabaseConfig.configure()
 RedisConfig.validate()
 
 
@@ -248,28 +249,20 @@ WSGI_APPLICATION = 'serverpanaccess.wsgi.application'
 #     }
 # }
 
-# SQLite3
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+# Base de datos: SQLite (dev) o PostgreSQL (staging/prod) vía DB_ENGINE en .env
+if DatabaseConfig.use_postgresql():
+    DATABASES = {'default': DatabaseConfig.django_default_database()}
+    _replica = DatabaseConfig.django_replica_database()
+    if _replica:
+        DATABASES['replica'] = _replica
+        DATABASE_ROUTERS = ['wind.db_router.PrimaryReplicaRouter']
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
     }
-}
-
-
-##############################################################
-# Base de datos PostgreSQL
-##############################################################
-# DATABASES = {
-#     'default': {
-#         'ENGINE': DatabaseConfig.ENGINE,
-#         'NAME': DatabaseConfig.NAME,
-#         'USER': DatabaseConfig.USER,
-#         'PASSWORD': DatabaseConfig.PASSWORD,
-#         'HOST': DatabaseConfig.HOST,
-#         'PORT': DatabaseConfig.PORT,
-#     }
-# }
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
@@ -305,7 +298,9 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
-STATIC_URL = '/static/'
+# CDN opcional (Fase 4): CDN_STATIC_URL=https://cdn.ejemplo.com/static/
+_cdn_static = os.getenv('CDN_STATIC_URL', '').strip()
+STATIC_URL = ((_cdn_static if _cdn_static else '/static/').rstrip('/') + '/')
 
 # En producción, Django NO sirve estáticos por defecto.
 # WhiteNoise los sirve desde STATIC_ROOT luego de collectstatic.
@@ -429,6 +424,69 @@ if _FULL_SYNC_ENABLED:
         },
         "kwargs": {"limit": _SYNC_LIMIT},
     }
+
+# ============================================================================
+# CACHÉ REDIS (Fase 3) — DB distinta al broker Celery (REDIS_CACHE_DB)
+# ============================================================================
+REDIS_CACHE_DB = max(0, min(15, _as_int(os.getenv('REDIS_CACHE_DB', '1'), 1)))
+_CACHE_USE_LOCmem = os.getenv('CACHE_BACKEND', '').lower() == 'locmem'
+
+if _CACHE_USE_LOCmem:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'wind-default',
+        }
+    }
+else:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django_redis.cache.RedisCache',
+            'LOCATION': RedisConfig.build_url(db=REDIS_CACHE_DB),
+            'OPTIONS': {
+                'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            },
+        }
+    }
+
+# Sesión PanAccess compartida entre workers (requiere Redis)
+PANACCESS_SESSION_USE_REDIS = _env_bool(
+    'PANACCESS_SESSION_USE_REDIS',
+    default=not CELERY_TASK_ALWAYS_EAGER,
+)
+PANACCESS_SESSION_TTL_SECONDS = max(
+    300, _as_int(os.getenv('PANACCESS_SESSION_TTL_SECONDS', '1500'), 1500)
+)
+
+# Circuit breaker PanAccess (Fase 4)
+PANACCESS_CIRCUIT_BREAKER_ENABLED = _env_bool(
+    'PANACCESS_CIRCUIT_BREAKER_ENABLED',
+    default=not DEBUG,
+)
+PANACCESS_CB_FAILURE_THRESHOLD = max(
+    1, _as_int(os.getenv('PANACCESS_CB_FAILURE_THRESHOLD', '5'), 5)
+)
+PANACCESS_CB_RECOVERY_SECONDS = max(
+    10, _as_int(os.getenv('PANACCESS_CB_RECOVERY_SECONDS', '60'), 60)
+)
+
+# ============================================================================
+# SENTRY (Fase 3) — solo si SENTRY_DSN está definido
+# ============================================================================
+_SENTRY_DSN = os.getenv('SENTRY_DSN', '').strip()
+if _SENTRY_DSN:
+    import sentry_sdk
+    from sentry_sdk.integrations.celery import CeleryIntegration
+    from sentry_sdk.integrations.django import DjangoIntegration
+    from sentry_sdk.integrations.redis import RedisIntegration
+
+    sentry_sdk.init(
+        dsn=_SENTRY_DSN,
+        integrations=[DjangoIntegration(), CeleryIntegration(), RedisIntegration()],
+        traces_sample_rate=float(os.getenv('SENTRY_TRACES_SAMPLE_RATE', '0.1')),
+        send_default_pii=False,
+        environment=os.getenv('SENTRY_ENVIRONMENT', 'production' if not DEBUG else 'development'),
+    )
 
 # ============================================================================
 # CONFIGURACIÓN DE LOGGING
