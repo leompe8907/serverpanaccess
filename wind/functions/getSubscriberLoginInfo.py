@@ -198,6 +198,29 @@ def fetch_all_subscribers_login_info(session_id=None, limit=None):
     }
 
 
+def cleanup_login_info_not_in_remote(remote_subscriber_codes):
+    """Elimina login info de códigos que ya no existen en PanAccess."""
+    if not remote_subscriber_codes:
+        return 0
+    qs = SubscriberLoginInfo.objects.exclude(subscriberCode__in=remote_subscriber_codes)
+    qs = qs.exclude(subscriberCode__isnull=True).exclude(subscriberCode="")
+    deleted = qs.delete()[0]
+    if deleted:
+        logger.info("Login info eliminada (ausente en PanAccess): %s registros", deleted)
+    return deleted
+
+
+def cleanup_login_info_orphans():
+    """Elimina login info sin suscriptor en ListOfSubscriber."""
+    local_codes = set(
+        ListOfSubscriber.objects.exclude(code__isnull=True)
+        .exclude(code="")
+        .values_list("code", flat=True)
+    )
+    deleted = SubscriberLoginInfo.objects.exclude(subscriberCode__in=local_codes).delete()[0]
+    return deleted
+
+
 def sync_subscribers_login_info(session_id=None, limit=None):
     """
     Sincroniza la información de login de todos los suscriptores.

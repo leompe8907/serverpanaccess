@@ -52,7 +52,6 @@ class ListOfProductsSerializer(serializers.ModelSerializer):
         model = ListOfProducts
         fields = '__all__'
 
-
 class SubscriberInfoSerializer(serializers.ModelSerializer):
     """
     Serializer principal para el sistema UDID.
@@ -83,7 +82,6 @@ class SubscriberInfoSerializer(serializers.ModelSerializer):
             'password_hash', 'pin_hash', 'failed_login_attempts', 'locked_until'
         ]
 
-
 class JWTUserDetailsSerializer(serializers.ModelSerializer):
     """
     Serializer para el usuario en la respuesta JWT (login con email/Google).
@@ -105,7 +103,6 @@ class JWTUserDetailsSerializer(serializers.ModelSerializer):
         except SubscriberEmailRegistry.DoesNotExist:
             return None
 
-
 # Serializers para crear suscriptores
 class ContactSerializer(serializers.Serializer):
     """Serializer para contactos de suscriptores"""
@@ -115,7 +112,6 @@ class ContactSerializer(serializers.Serializer):
     )
     isBusiness = serializers.BooleanField(required=True)
     contact = serializers.CharField(required=True, max_length=255)
-
 
 class AddressSerializer(serializers.Serializer):
     """Serializer para direcciones de suscriptores"""
@@ -136,7 +132,6 @@ class AddressSerializer(serializers.Serializer):
     ownership = serializers.IntegerField(required=False, allow_null=True, min_value=0, max_value=2)
     ownerName = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=255)
     ownerPhone = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=100)
-
 
 class CreateSubscriberSerializer(serializers.Serializer):
     """

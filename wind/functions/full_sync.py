@@ -106,13 +106,12 @@ def _delete_extra_smartcards(limit: int) -> dict:
 
 
 def _cleanup_login_info() -> dict:
-    """Elimina SubscriberLoginInfo sin suscriptor local."""
-    local_codes = set(
-        ListOfSubscriber.objects.exclude(code__isnull=True).exclude(code="").values_list("code", flat=True)
-    )
-    deleted = SubscriberLoginInfo.objects.exclude(subscriberCode__in=local_codes).delete()[0]
+    """Elimina SubscriberLoginInfo sin suscriptor local (post sync de login)."""
+    from wind.functions.getSubscriberLoginInfo import cleanup_login_info_orphans
+
+    deleted_orphans = cleanup_login_info_orphans()
     total = SubscriberLoginInfo.objects.count()
-    return {"remaining": total, "deleted_orphans": deleted}
+    return {"remaining": total, "deleted_orphans": deleted_orphans}
 
 
 def run_full_sync(limit: int = 100) -> dict:
