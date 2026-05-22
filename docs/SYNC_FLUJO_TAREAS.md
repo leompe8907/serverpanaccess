@@ -14,7 +14,9 @@ Modelo operativo acordado para producción.
 
 ## Fase 1 — Deploy (manual, una vez)
 
-Tras `migrate` y con **worker + beat** arrancados, ejecutar **en este orden** (JWT staff):
+Tras `migrate` y con **worker + beat** arrancados, ejecutar **en este orden** (JWT staff).
+
+Con `SYNC_HTTP_ASYNC=true` (default) cada POST responde **202** y `task_id`; el worker ejecuta la tarea. Ver [SYNC_HTTP_ASYNC.md](./SYNC_HTTP_ASYNC.md).
 
 ```http
 POST /wind/sync-subscribers/?limit=200
@@ -22,6 +24,8 @@ POST /wind/sync-products/?limit=200
 POST /wind/sync-smartcards/?limit=200
 Authorization: Bearer <token_staff>
 ```
+
+Seguimiento: `GET /api/v1/tasks/<task_id>/`
 
 | Endpoint | Función | Efecto |
 |----------|---------|--------|

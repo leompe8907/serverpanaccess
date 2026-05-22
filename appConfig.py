@@ -92,27 +92,56 @@ class SocialConfig:
     # APPLE_CLIENT_SECRET = os.getenv("APPLE_CLIENT_SECRET")
     # APPLE_REDIRECT_URI = os.getenv("APPLE_REDIRECT_URI")
 
+    _PROVIDER_ENV = {
+        "google": (
+            "GOOGLE_CLIENT_ID",
+            "GOOGLE_CLIENT_SECRET",
+            "GOOGLE_REDIRECT_URI",
+        ),
+        "facebook": (
+            "FACEBOOK_APP_ID",
+            "FACEBOOK_APP_SECRET",
+            "FACEBOOK_REDIRECT_URI",
+        ),
+        # "apple": ("APPLE_CLIENT_ID", "APPLE_CLIENT_SECRET", "APPLE_REDIRECT_URI"),
+    }
+
+    @classmethod
+    def enabled_providers(cls) -> list[str]:
+        """
+        Proveedores activos (roadmap #14). Ej.: SOCIAL_LOGIN_PROVIDERS=google
+        o google,facebook. Vacío = no exige credenciales sociales al arrancar.
+        """
+        raw = os.getenv("SOCIAL_LOGIN_PROVIDERS", "google,facebook")
+        return [p.strip().lower() for p in raw.split(",") if p.strip()]
+
     @classmethod
     def validate(cls):
+        providers = cls.enabled_providers()
+        if not providers:
+            return
+
         missing = []
-        if not cls.GOOGLE_CLIENT_ID:
-            missing.append("GOOGLE_CLIENT_ID")
-        if not cls.GOOGLE_CLIENT_SECRET:
-            missing.append("GOOGLE_CLIENT_SECRET")
-        if not cls.GOOGLE_REDIRECT_URI:
-            missing.append("GOOGLE_REDIRECT_URI")
-        if not cls.FACEBOOK_APP_ID:
-            missing.append("FACEBOOK_APP_ID")
-        if not cls.FACEBOOK_APP_SECRET:
-            missing.append("FACEBOOK_APP_SECRET")
-        if not cls.FACEBOOK_REDIRECT_URI:
-            missing.append("FACEBOOK_REDIRECT_URI")
-        # if not cls.APPLE_CLIENT_ID:
-        #     missing.append("APPLE_CLIENT_ID")
-        # if not cls.APPLE_CLIENT_SECRET:
-        #     missing.append("APPLE_CLIENT_SECRET")
-        # if not cls.APPLE_REDIRECT_URI:
-        #     missing.append("APPLE_REDIRECT_URI")
+        unknown = []
+        for provider in providers:
+            env_names = cls._PROVIDER_ENV.get(provider)
+            if not env_names:
+                unknown.append(provider)
+                continue
+            for env_name in env_names:
+                if not os.getenv(env_name):
+                    missing.append(env_name)
+
+        if unknown:
+            raise EnvironmentError(
+                f"SOCIAL_LOGIN_PROVIDERS inválido: {', '.join(unknown)}. "
+                f"Válidos: {', '.join(cls._PROVIDER_ENV)}"
+            )
+        if missing:
+            raise EnvironmentError(
+                f"Faltan variables para login social ({', '.join(providers)}): "
+                f"{', '.join(missing)}"
+            )
 
 class DatabaseConfig:
     # SQLite en dev si DB_ENGINE no indica PostgreSQL.

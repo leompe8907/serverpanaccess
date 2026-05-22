@@ -194,4 +194,5 @@ Mientras `full_sync_task` corre, las otras dos se **omiten** (flag en Redis).
 
 - [POSTGRESQL_UBUNTU.md](./POSTGRESQL_UBUNTU.md) — ítem #1
 - [DESPLIEGUE.md](./DESPLIEGUE.md) — resumen de comandos
-- [ROADMAP_PRODUCCION.md](./ROADMAP_PRODUCCION.md) — ítem #16 (systemd Gunicorn)
+- [SYSTEMD_UBUNTU.md](./SYSTEMD_UBUNTU.md) — ítem #16 (Gunicorn + worker + beat)
+- [ROADMAP_PRODUCCION.md](./ROADMAP_PRODUCCION.md)

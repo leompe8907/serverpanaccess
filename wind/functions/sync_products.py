@@ -18,76 +18,68 @@ from wind.functions.getProducts import (
     LastProduct
 )
 from wind.exceptions import PanAccessException
+from wind.services.sync_http import (
+    celery_enqueue_response,
+    parse_sync_limit,
+    sync_get_info_response,
+    sync_http_async_enabled,
+)
 
 logger = logging.getLogger(__name__)
 
 
-@api_view(['GET', 'POST'])
+@api_view(["GET", "POST"])
 @permission_classes([IsAdminUser])
 @throttle_classes([SyncAdminThrottle])
 def sync_products_view(request):
-    """
-    Vista para sincronizar productos desde PanAccess.
-    
-    La función sync_products() valida automáticamente la base de datos:
-    - Si está vacía, realiza descarga completa
-    - Si tiene datos, realiza descarga incremental + actualización
-    
-    Parámetros opcionales (GET o POST):
-    - limit: Cantidad de registros por página (default: 100, máximo: 1000)
-    
-    Returns:
-        Respuesta con estadísticas de la sincronización
-    """
+    if request.method == "GET":
+        return sync_get_info_response(
+            endpoint="/wind/sync-products/",
+            task_name="sync_products_task",
+            async_default=True,
+        )
+
+    limit = parse_sync_limit(request)
+    if sync_http_async_enabled():
+        from wind.tasks import sync_products_task
+
+        return celery_enqueue_response(
+            sync_products_task.delay(limit=limit),
+            limit=limit,
+            label="sync-products",
+        )
+
     try:
-        # Obtener parámetros
-        if request.method == 'GET':
-            limit = int(request.query_params.get('limit', 100))
-        else:
-            limit = int(request.data.get('limit', 100))
-        
-        if limit > 1000:
-            limit = 1000
-        
         result = sync_products(session_id=None, limit=limit)
         last_product = LastProduct()
-        last_product_id = last_product.productId if last_product else None
-        
-        return Response({
-            'success': True,
-            'message': 'Sincronización completada',
-            'limit_used': limit,
-            'last_product_id': last_product_id,
-            'database_empty': DataBaseEmpty(),
-            'result': result
-        }, status=status.HTTP_200_OK)
-        
+        return Response(
+            {
+                "success": True,
+                "message": "Sincronización completada (síncrona)",
+                "limit_used": limit,
+                "last_product_id": last_product.productId if last_product else None,
+                "database_empty": DataBaseEmpty(),
+                "result": result,
+            },
+            status=status.HTTP_200_OK,
+        )
     except PanAccessException as e:
-        logger.error(f"Error PanAccess: {str(e)}")
-        
-        return Response({
-            'success': False,
-            'error_type': type(e).__name__,
-            'message': str(e)
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
+        logger.error("Error PanAccess: %s", e)
+        return Response(
+            {"success": False, "error_type": type(e).__name__, "message": str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
     except ValueError as e:
-        logger.error(f"Error parámetros: {str(e)}")
-        
-        return Response({
-            'success': False,
-            'error_type': 'ValueError',
-            'message': str(e)
-        }, status=status.HTTP_400_BAD_REQUEST)
-        
+        return Response(
+            {"success": False, "error_type": "ValueError", "message": str(e)},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
     except Exception as e:
-        logger.error(f"Error: {str(e)}", exc_info=True)
-        
-        return Response({
-            'success': False,
-            'error_type': 'Exception',
-            'message': str(e)
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        logger.error("Error: %s", e, exc_info=True)
+        return Response(
+            {"success": False, "error_type": "Exception", "message": str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
 
 
 @api_view(['GET', 'POST'])

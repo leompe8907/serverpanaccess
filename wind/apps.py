@@ -11,6 +11,7 @@ _SKIP_PANACCESS_INIT_COMMANDS = frozenset({
     'migrate', 'makemigrations', 'shell', 'test', 'collectstatic',
     'check', 'showmigrations', 'sqlmigrate', 'createsuperuser',
     'loaddata', 'dumpdata', 'flush',
+    'check_deploy', 'check_redis', 'check_database', 'sentry_test',
 })
 
 

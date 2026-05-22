@@ -14,8 +14,8 @@ Estas decisiones **no son errores de diseño**, pero condicionan el análisis y 
 | Tema | Decisión actual | Implicación para escalabilidad |
 |------|-----------------|--------------------------------|
 | **SQLite en dev** | Activo a propósito: mejor visualización de datos con extensión de Cursor. PostgreSQL preparado en `.env` pero comentado en `settings.py`. | Válido en desarrollo. En **producción con usuarios reales** sigue siendo obligatorio PostgreSQL. |
-| **`full-sync`** | Función **correctiva/batch**, pensada para ejecutarse en **horario de bajo tráfico** (ej. medianoche), no como API de uso diario. | El riesgo no es el concepto, sino que hoy sigue siendo **HTTP síncrono** y **no está en Celery Beat**. |
-| **Perfil de usuario** | Visión: login con usuario/contraseña o social; módulos de contraseña, productos, compras (futuro), etc. | Parte del camino ya existe (JWT, allauth, `SubscriberEmailRegistry`); falta API de perfil unificada y endurecer seguridad. |
+| **`full-sync`** | Correctivo **nocturno** vía `full_sync_task` en Celery Beat. | HTTP deshabilitado en prod (`FULL_SYNC_HTTP_ENABLED=false`). Ver [FULL_SYNC_PRODUCCION.md](./FULL_SYNC_PRODUCCION.md). |
+| **Perfil de usuario** | API `/api/v1/profile/` (me, password, products). | Optimizado por código de abonado; ver [PERFIL_PANACCESS.md](./PERFIL_PANACCESS.md). |
 | **Singleton PanAccess** | Sesión del **sistema** (cuenta de servicio `nbr_sw4`), no del usuario final. | Funciona con matices según servidor (runserver vs Daphne) y con límites en recuperación de errores (ver §3.4). |
 
 ---
@@ -28,16 +28,16 @@ Estas decisiones **no son errores de diseño**, pero condicionan el análisis y 
 
 | Pregunta | Respuesta |
 |----------|-----------|
-| ¿Puede hoy soportar 5.000 usuarios concurrentes en producción? | **No**, con SQLite activo y sync pesado aún accesible por HTTP sin throttling. |
+| ¿Puede hoy soportar 5.000 usuarios concurrentes en producción? | **No** sin PostgreSQL en prod, pruebas de carga y más workers/caché; el camino P0–P2 del [ROADMAP_PRODUCCION.md](./ROADMAP_PRODUCCION.md) ya cubre sync y perfil. |
 | ¿Está mal planteado el dominio? | **No**; combina integración PanAccess (batch) con camino hacia API de perfil de usuario. |
 | ¿Es recuperable para escalar? | **Sí**, con PostgreSQL en prod, sync nocturno en Celery, módulo perfil y endurecimiento de seguridad. |
 
 Cuellos de botella principales para **tráfico de usuarios** (no para sync nocturno):
 
 1. **SQLite en producción** (en dev es aceptable).  
-2. **Sync pesado aún invocable por HTTP** sin restricción horaria ni solo-worker.  
-3. **Llamadas síncronas en cadena a PanAccess** (N+1 externo en login info).  
-4. **Sin caché ni throttling** en DRF.  
+2. **Sync HTTP en horario pico** — documentado; usar Celery ([SYNC_HTTP_OPERACION.md](./SYNC_HTTP_OPERACION.md)).  
+3. **Login info en full-sync** — optimizado (API listada + paralelo); ver [LOGIN_INFO_SYNC.md](./LOGIN_INFO_SYNC.md).  
+4. **Throttling DRF** — activo; caché Redis configurable (`REDIS_CACHE_DB`).  
 5. **Singleton por proceso** y no inicializado en Daphne/Gunicorn al arranque.  
 6. **Endpoints operativos con `AllowAny`**.
 
@@ -62,10 +62,8 @@ Cuellos de botella principales para **tráfico de usuarios** (no para sync noctu
    └───────────┘                                 │
                                           ┌──────▼───────┐
                                           │ Celery Beat  │
-                                          │ subscribers  │
-                                          │ + smartcards │
-                                          │ (full-sync   │
-                                          │  NO en beat) │
+                                          │ compare 10m  │
+                                          │ full-sync 0h │
                                           └──────────────┘
 ```
 
@@ -77,7 +75,7 @@ Cuellos de botella principales para **tráfico de usuarios** (no para sync noctu
 | API | DRF 3.17 + JWT + dj-rest-auth + allauth | OK para auth |
 | BD dev | **SQLite** | Aceptable en local (decisión equipo) |
 | BD prod | PostgreSQL en `.env` / `DatabaseConfig` | Comentada en `settings.py` — activar al desplegar |
-| Cola | Celery 5.6 + Redis (`RedisConfig` centralizado) | Parcial: 2 tareas en beat; `full-sync` pendiente |
+| Cola | Celery 5.6 + Redis (`RedisConfig` centralizado) | Beat: compare subscribers/smartcards + `full_sync_task` |
 | Estáticos | WhiteNoise | OK |
 | Servidor | Gunicorn / Daphne en Ubuntu | Despliegue nativo (systemd), sin Docker |
 | Cache | — | **No configurado** |
@@ -336,10 +334,10 @@ Roadmap alineado con la intención del equipo:
 
 - [x] PostgreSQL configurable vía `DB_ENGINE` (SQLite sigue en dev).  
 - [x] `CACHES` Redis (`REDIS_CACHE_DB`); sesión PanAccess en Redis (`PANACCESS_SESSION_USE_REDIS`).  
-- [ ] systemd + nginx en Ubuntu — **pendiente** (ver ROADMAP_PRODUCCION.md; sin Docker).  
-- [x] Sentry opcional (`SENTRY_DSN`); `/health/` y `/ready/`.  
-- [x] Locust básico (`scripts/load/locustfile.py`).  
-- [ ] Optimización y pruebas de carga antes de desplegar — **foco actual**.  
+- [x] Plantillas systemd + guía [SYSTEMD_UBUNTU.md](./SYSTEMD_UBUNTU.md); nginx con `/ready/`.  
+- [x] Sentry opcional (`SENTRY_DSN`, `manage.py sentry_test`); [SENTRY_PRODUCCION.md](./SENTRY_PRODUCCION.md).  
+- [x] Locust perfil — [LOCUST_STAGING.md](./LOCUST_STAGING.md).  
+- [ ] Prueba de carga en staging con PostgreSQL antes de prod — ejecutar Locust y anotar p95.  
 
 ### Fase 4 — Escala (sin compras; compras más adelante)
 

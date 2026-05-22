@@ -8,7 +8,7 @@ from django.conf import settings
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
 
-from appConfig import DjangoConfig, RedisConfig
+from appConfig import DjangoConfig, PanaccessConfig, RedisConfig, SocialConfig
 
 
 class Command(BaseCommand):
@@ -91,6 +91,28 @@ class Command(BaseCommand):
         self.stdout.write(f"PANACCESS_SESSION_USE_REDIS: {panaccess_session_redis}")
         self.stdout.write(f"PANACCESS_SESSION_TTL_SECONDS: {panaccess_session_ttl}")
 
+        social_providers = SocialConfig.enabled_providers()
+        self.stdout.write(
+            f"SOCIAL_LOGIN_PROVIDERS: {', '.join(social_providers) or '(ninguno)'}"
+        )
+
+        sentry_dsn = os.getenv("SENTRY_DSN", "").strip()
+        self.stdout.write(f"SENTRY_DSN: {'configurado' if sentry_dsn else 'no (opcional)'}")
+        if strict and not settings.DEBUG and not sentry_dsn:
+            warnings.append(
+                "SENTRY_DSN vacío en producción; errores nocturnos no irán a Sentry (roadmap #18)"
+            )
+
+        try:
+            PanaccessConfig.validate()
+            self.stdout.write(self.style.SUCCESS("PanAccess .env: variables obligatorias OK"))
+        except EnvironmentError as exc:
+            msg = str(exc)
+            if strict and not settings.DEBUG:
+                errors.append(msg)
+            else:
+                warnings.append(msg)
+
         if panaccess_session_redis:
             try:
                 RedisConfig.get_client().ping()
@@ -124,8 +146,18 @@ class Command(BaseCommand):
                     "CELERY_FULL_SYNC_ENABLED=false: el full-sync nocturno no se programará en Beat."
                 )
             if not getattr(settings, "PRODUCTION_HTTPS", False):
+                errors.append(
+                    "PRODUCTION_HTTPS=false en producción. Use true detrás de nginx con TLS (roadmap #23)."
+                )
+            sync_async = os.getenv("SYNC_HTTP_ASYNC", "true").lower() in (
+                "true",
+                "1",
+                "yes",
+            )
+            self.stdout.write(f"SYNC_HTTP_ASYNC: {sync_async}")
+            if not sync_async:
                 warnings.append(
-                    "PRODUCTION_HTTPS no está activo; use true detrás de nginx con TLS"
+                    "SYNC_HTTP_ASYNC=false: POST /wind/sync-* bloquean Gunicorn hasta terminar"
                 )
             allowlist = getattr(settings, "SYNC_ADMIN_IP_ALLOWLIST", []) or []
             if not allowlist:

@@ -1,5 +1,6 @@
 import logging
 import os
+import time
 
 from celery import shared_task
 
@@ -7,6 +8,7 @@ from wind.functions.getSubscriber import (
     compare_and_update_all_subscribers,
     sync_subscribers,
 )
+from wind.functions.getProducts import sync_products
 from wind.functions.getSmartcard import compare_and_update_all_smartcards, sync_smartcards
 from wind.functions.full_sync import run_full_sync
 from wind.exceptions import PanAccessException
@@ -83,6 +85,48 @@ def sync_subscribers_task(self, limit=None):
             raise
         except Exception:
             logger.exception("💥 [Celery] Error inesperado en sync_subscribers_task")
+            raise
+
+
+@shared_task(
+    bind=True,
+    autoretry_for=(PanAccessException, ConnectionError),
+    retry_backoff=True,
+    retry_backoff_max=600,
+    retry_jitter=True,
+    max_retries=5,
+)
+def sync_products_task(self, limit=None):
+    """
+    Carga inicial de productos (deploy manual). POST /wind/sync-products/ encola esta tarea.
+    """
+    if RedisConfig.is_full_sync_in_progress():
+        return _skipped_during_full_sync("sync_products_task")
+
+    lock_key = "celery:lock:sync_products_task"
+    lock_timeout = 600
+
+    with RedisConfig.task_lock(lock_key, timeout=lock_timeout) as acquired:
+        if not acquired:
+            logger.warning("[Celery] sync_products_task ya está ejecutándose, se omite")
+            return {
+                "success": False,
+                "message": "Task already running, skipped",
+                "skipped": True,
+            }
+
+        try:
+            env_limit = _as_int(os.getenv("CELERY_SYNC_LIMIT"), None)
+            limit = limit or env_limit or 200
+            logger.info("[Celery] Iniciando sync_products_task limit=%s", limit)
+            result = sync_products(session_id=None, limit=limit)
+            logger.info("[Celery] sync_products_task completada")
+            return {"success": True, "limit": limit, "result": result}
+        except PanAccessException as exc:
+            logger.error("[Celery] Error PanAccess en sync_products_task: %s", exc)
+            raise
+        except Exception:
+            logger.exception("[Celery] Error inesperado en sync_products_task")
             raise
 
 
@@ -256,9 +300,17 @@ def full_sync_task(self, limit=None):
         try:
             env_limit = _as_int(os.getenv("CELERY_SYNC_LIMIT"), None)
             limit = limit or env_limit or 200
+            started = time.monotonic()
             logger.info("[Celery] Iniciando full_sync_task con limit=%s", limit)
             result = run_full_sync(limit=limit)
-            logger.info("[Celery] full_sync_task completada")
+            elapsed = time.monotonic() - started
+            logger.info(
+                "[Celery] full_sync_task completada en %.1fs success=%s",
+                elapsed,
+                result.get("success") if isinstance(result, dict) else result,
+            )
+            if isinstance(result, dict):
+                result["duration_seconds"] = round(elapsed, 1)
             return result
         except PanAccessException as exc:
             logger.error("[Celery] Error PanAccess en full_sync_task: %s", exc)

@@ -18,76 +18,68 @@ from wind.functions.getSmartcard import (
     LastSmartcard
 )
 from wind.exceptions import PanAccessException
+from wind.services.sync_http import (
+    celery_enqueue_response,
+    parse_sync_limit,
+    sync_get_info_response,
+    sync_http_async_enabled,
+)
 
 logger = logging.getLogger(__name__)
 
 
-@api_view(['GET', 'POST'])
+@api_view(["GET", "POST"])
 @permission_classes([IsAdminUser])
 @throttle_classes([SyncAdminThrottle])
 def sync_smartcards_view(request):
-    """
-    Vista para sincronizar smartcards desde PanAccess.
-    
-    La función sync_smartcards() valida automáticamente la base de datos:
-    - Si está vacía, realiza descarga completa
-    - Si tiene datos, reconciliación completa (crear / actualizar / eliminar)
-    
-    Parámetros opcionales (GET o POST):
-    - limit: Cantidad de registros por página (default: 100, máximo: 1000)
-    
-    Returns:
-        Respuesta con estadísticas de la sincronización
-    """
+    if request.method == "GET":
+        return sync_get_info_response(
+            endpoint="/wind/sync-smartcards/",
+            task_name="sync_smartcards_task",
+            async_default=True,
+        )
+
+    limit = parse_sync_limit(request)
+    if sync_http_async_enabled():
+        from wind.tasks import sync_smartcards_task
+
+        return celery_enqueue_response(
+            sync_smartcards_task.delay(limit=limit),
+            limit=limit,
+            label="sync-smartcards",
+        )
+
     try:
-        # Obtener parámetros
-        if request.method == 'GET':
-            limit = int(request.query_params.get('limit', 100))
-        else:
-            limit = int(request.data.get('limit', 100))
-        
-        if limit > 1000:
-            limit = 1000
-        
         result = sync_smartcards(session_id=None, limit=limit)
         last_smartcard = LastSmartcard()
-        last_sn = last_smartcard.sn if last_smartcard else None
-        
-        return Response({
-            'success': True,
-            'message': 'Sincronización completada',
-            'limit_used': limit,
-            'last_smartcard_sn': last_sn,
-            'database_empty': DataBaseEmpty(),
-            'result': result
-        }, status=status.HTTP_200_OK)
-        
+        return Response(
+            {
+                "success": True,
+                "message": "Sincronización completada (síncrona)",
+                "limit_used": limit,
+                "last_smartcard_sn": last_smartcard.sn if last_smartcard else None,
+                "database_empty": DataBaseEmpty(),
+                "result": result,
+            },
+            status=status.HTTP_200_OK,
+        )
     except PanAccessException as e:
-        logger.error(f"Error PanAccess: {str(e)}")
-        
-        return Response({
-            'success': False,
-            'error_type': type(e).__name__,
-            'message': str(e)
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
+        logger.error("Error PanAccess: %s", e)
+        return Response(
+            {"success": False, "error_type": type(e).__name__, "message": str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
     except ValueError as e:
-        logger.error(f"Error parámetros: {str(e)}")
-        
-        return Response({
-            'success': False,
-            'error_type': 'ValueError',
-            'message': str(e)
-        }, status=status.HTTP_400_BAD_REQUEST)
-        
+        return Response(
+            {"success": False, "error_type": "ValueError", "message": str(e)},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
     except Exception as e:
-        logger.error(f"Error: {str(e)}", exc_info=True)
-        
-        return Response({
-            'success': False,
-            'error_type': 'Exception',
-            'message': str(e)
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        logger.error("Error: %s", e, exc_info=True)
+        return Response(
+            {"success": False, "error_type": "Exception", "message": str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
 
 
 @api_view(['GET', 'POST'])

@@ -639,7 +639,7 @@ LOGGING = {
     },
 }
 
-SOCIALACCOUNT_PROVIDERS = {
+_SOCIALACCOUNT_PROVIDERS_ALL = {
     'google': {
         'SCOPE': ['profile', 'email'],
         'APP': {
@@ -660,13 +660,12 @@ SOCIALACCOUNT_PROVIDERS = {
             'key': '',
         },
     },
-    # 'apple': {
-    #     'APPS': {
-    #         'client_id': SocialConfig.APPLE_CLIENT_ID,
-    #         'secret': SocialConfig.APPLE_CLIENT_SECRET,
-    #         'key': "",
-    #     },
-    # },
+}
+
+SOCIALACCOUNT_PROVIDERS = {
+    name: _SOCIALACCOUNT_PROVIDERS_ALL[name]
+    for name in SocialConfig.enabled_providers()
+    if name in _SOCIALACCOUNT_PROVIDERS_ALL
 }
 
 # Redirección tras login/logout con Google (allauth)

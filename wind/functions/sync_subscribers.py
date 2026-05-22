@@ -1,152 +1,131 @@
 """
 Vista para sincronizar suscriptores desde PanAccess.
-
-Endpoint que ejecuta el proceso de sincronización completo de suscriptores.
 """
 import logging
+
+from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
-from rest_framework import status
 
-from wind.throttles import SyncAdminThrottle
-
+from wind.exceptions import PanAccessException
 from wind.functions.getSubscriber import (
-    sync_subscribers,
     DataBaseEmpty,
     LastSubscriber,
-    compare_and_update_all_subscribers
+    compare_and_update_all_subscribers,
+    sync_subscribers,
 )
-from wind.exceptions import PanAccessException
+from wind.services.sync_http import (
+    celery_enqueue_response,
+    parse_sync_limit,
+    sync_get_info_response,
+    sync_http_async_enabled,
+)
+from wind.throttles import SyncAdminThrottle
 
 logger = logging.getLogger(__name__)
 
 
-@api_view(['GET', 'POST'])
+@api_view(["GET", "POST"])
 @permission_classes([IsAdminUser])
 @throttle_classes([SyncAdminThrottle])
 def sync_subscribers_view(request):
-    """
-    Vista para sincronizar suscriptores desde PanAccess.
-    
-    La función sync_subscribers() valida automáticamente la base de datos:
-    - Si está vacía, realiza descarga completa
-    - Si tiene datos, realiza descarga incremental + actualización
-    
-    Parámetros opcionales (GET o POST):
-    - limit: Cantidad de registros por página (default: 100, máximo: 1000)
-    
-    Returns:
-        Respuesta con estadísticas de la sincronización
-    """
+    if request.method == "GET":
+        return sync_get_info_response(
+            endpoint="/wind/sync-subscribers/",
+            task_name="sync_subscribers_task",
+            async_default=True,
+        )
+
+    limit = parse_sync_limit(request)
+    if sync_http_async_enabled():
+        from wind.tasks import sync_subscribers_task
+
+        return celery_enqueue_response(
+            sync_subscribers_task.delay(limit=limit),
+            limit=limit,
+            label="sync-subscribers",
+        )
+
     try:
-        # Obtener parámetros
-        if request.method == 'GET':
-            limit = int(request.query_params.get('limit', 100))
-        else:
-            limit = int(request.data.get('limit', 100))
-        
-        if limit > 1000:
-            limit = 1000
-        
         result = sync_subscribers(session_id=None, limit=limit)
         last_subscriber = LastSubscriber()
-        last_subscriber_code = last_subscriber.code if last_subscriber else None
-        
-        return Response({
-            'success': True,
-            'message': 'Sincronización completada',
-            'limit_used': limit,
-            'last_subscriber_code': last_subscriber_code,
-            'database_empty': DataBaseEmpty(),
-            'result': result
-        }, status=status.HTTP_200_OK)
-        
+        return Response(
+            {
+                "success": True,
+                "message": "Sincronización completada (síncrona; SYNC_HTTP_ASYNC=false)",
+                "limit_used": limit,
+                "last_subscriber_code": last_subscriber.code if last_subscriber else None,
+                "database_empty": DataBaseEmpty(),
+                "result": result,
+            },
+            status=status.HTTP_200_OK,
+        )
     except PanAccessException as e:
-        logger.error(f"Error PanAccess: {str(e)}")
-        return Response({
-            'success': False,
-            'error_type': type(e).__name__,
-            'message': str(e)
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
+        logger.error("Error PanAccess: %s", e)
+        return Response(
+            {"success": False, "error_type": type(e).__name__, "message": str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
     except ValueError as e:
-        logger.error(f"Error parámetros: {str(e)}")
-        return Response({
-            'success': False,
-            'error_type': 'ValueError',
-            'message': str(e)
-        }, status=status.HTTP_400_BAD_REQUEST)
-    
+        return Response(
+            {"success": False, "error_type": "ValueError", "message": str(e)},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
     except Exception as e:
-        logger.error(f"Error: {str(e)}", exc_info=True)
-        
-        return Response({
-            'success': False,
-            'error_type': 'Exception',
-            'message': str(e)
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        logger.error("Error: %s", e, exc_info=True)
+        return Response(
+            {"success": False, "error_type": "Exception", "message": str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
 
 
-@api_view(['GET', 'POST'])
+@api_view(["GET", "POST"])
 @permission_classes([IsAdminUser])
 @throttle_classes([SyncAdminThrottle])
 def compare_and_update_subscribers_view(request):
-    """
-    Vista para comparar y actualizar suscriptores existentes desde PanAccess.
-    
-    Compara todos los suscriptores de PanAccess con los de la base local:
-    - Descarga todos los suscriptores de PanAccess (procesando por lotes)
-    - Compara la cantidad total usando el parámetro 'count' de la API
-    - Si las cantidades son iguales: compara registro por registro y actualiza los diferentes
-    - Si PanAccess tiene menos registros: elimina los registros de más (incluyendo credenciales)
-    
-    Parámetros opcionales (GET o POST):
-    - limit: Cantidad de registros por página (default: 100, máximo: 1000)
-    
-    Returns:
-        Respuesta con estadísticas de actualización y eliminación
-    """
-    try:
-        # Obtener parámetros
-        if request.method == 'GET':
-            limit = int(request.query_params.get('limit', 100))
-        else:
-            limit = int(request.data.get('limit', 100))
-        
-        if limit > 1000:
-            limit = 1000
-        
-        result = compare_and_update_all_subscribers(session_id=None, limit=limit)
-        
-        return Response({
-            'success': True,
-            'message': 'Comparación y actualización completada',
-            'limit_used': limit,
-            'result': result
-        }, status=status.HTTP_200_OK)
-        
-    except PanAccessException as e:
-        logger.error(f"Error PanAccess: {str(e)}")
-        return Response({
-            'success': False,
-            'error_type': type(e).__name__,
-            'message': str(e)
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
-    except ValueError as e:
-        logger.error(f"Error parámetros: {str(e)}")
-        return Response({
-            'success': False,
-            'error_type': 'ValueError',
-            'message': str(e)
-        }, status=status.HTTP_400_BAD_REQUEST)
-    
-    except Exception as e:
-        logger.error(f"Error: {str(e)}", exc_info=True)
-        return Response({
-            'success': False,
-            'error_type': 'Exception',
-            'message': str(e)
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    if request.method == "GET":
+        return sync_get_info_response(
+            endpoint="/wind/compare-and-update-subscribers/",
+            task_name="compare_and_update_subscribers_task",
+            async_default=True,
+        )
 
+    limit = parse_sync_limit(request)
+    if sync_http_async_enabled():
+        from wind.tasks import compare_and_update_subscribers_task
+
+        return celery_enqueue_response(
+            compare_and_update_subscribers_task.delay(limit=limit),
+            limit=limit,
+            label="compare-and-update-subscribers",
+        )
+
+    try:
+        result = compare_and_update_all_subscribers(session_id=None, limit=limit)
+        return Response(
+            {
+                "success": True,
+                "message": "Comparación completada (síncrona)",
+                "limit_used": limit,
+                "result": result,
+            },
+            status=status.HTTP_200_OK,
+        )
+    except PanAccessException as e:
+        logger.error("Error PanAccess: %s", e)
+        return Response(
+            {"success": False, "error_type": type(e).__name__, "message": str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+    except ValueError as e:
+        return Response(
+            {"success": False, "error_type": "ValueError", "message": str(e)},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    except Exception as e:
+        logger.error("Error: %s", e, exc_info=True)
+        return Response(
+            {"success": False, "error_type": "Exception", "message": str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
