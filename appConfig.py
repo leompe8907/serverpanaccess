@@ -240,6 +240,43 @@ class RedisConfig:
             kwargs["password"] = cls.PASSWORD
         return Redis(**kwargs)
 
+    FULL_SYNC_FLAG_KEY = "celery:flag:full_sync_in_progress"
+
+    @classmethod
+    def set_full_sync_in_progress(cls, *, timeout: int = 3600) -> None:
+        """Marca que el full sync correctivo está en curso (TTL = timeout segundos)."""
+        from django.conf import settings
+
+        if getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
+            cls._eager_full_sync_active = True
+            return
+        cls.get_client().set(cls.FULL_SYNC_FLAG_KEY, b"1", ex=max(60, int(timeout)))
+
+    @classmethod
+    def clear_full_sync_in_progress(cls) -> None:
+        from django.conf import settings
+
+        if getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
+            cls._eager_full_sync_active = False
+            return
+        try:
+            cls.get_client().delete(cls.FULL_SYNC_FLAG_KEY)
+        except Exception:
+            pass
+
+    @classmethod
+    def is_full_sync_in_progress(cls) -> bool:
+        from django.conf import settings
+
+        if getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
+            return bool(getattr(cls, "_eager_full_sync_active", False))
+        try:
+            return cls.get_client().get(cls.FULL_SYNC_FLAG_KEY) is not None
+        except Exception:
+            return False
+
+    _eager_full_sync_active = False
+
     @classmethod
     @contextmanager
     def task_lock(cls, key: str, *, timeout: int = 600):

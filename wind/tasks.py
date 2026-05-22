@@ -19,6 +19,18 @@ def _as_int(value, default):
         return default
 
 
+def _skipped_during_full_sync(task_name: str) -> dict:
+    logger.warning(
+        "[Celery] %s omitida: full_sync correctivo en curso",
+        task_name,
+    )
+    return {
+        "success": False,
+        "skipped": True,
+        "message": "Deferred: full_sync in progress",
+    }
+
+
 @shared_task(
     bind=True,
     autoretry_for=(PanAccessException, ConnectionError),
@@ -36,6 +48,9 @@ def sync_subscribers_task(self, limit=None):
         limit (int): cantidad máxima por página (se puede sobreescribir vía argumento
                      o env CELERY_SYNC_LIMIT)
     """
+    if RedisConfig.is_full_sync_in_progress():
+        return _skipped_during_full_sync("sync_subscribers_task")
+
     lock_key = "celery:lock:sync_subscribers_task"
     lock_timeout = 600  # 10 minutos máximo (mismo que CELERY_TASK_TIME_LIMIT)
 
@@ -87,6 +102,9 @@ def sync_smartcards_task(self, limit=None):
         limit (int): cantidad máxima por página (se puede sobreescribir vía argumento
                      o env CELERY_SYNC_LIMIT)
     """
+    if RedisConfig.is_full_sync_in_progress():
+        return _skipped_during_full_sync("sync_smartcards_task")
+
     lock_key = "celery:lock:sync_smartcards_task"
     lock_timeout = 600
 
@@ -141,6 +159,7 @@ def full_sync_task(self, limit=None):
             logger.warning("[Celery] full_sync_task ya está ejecutándose, se omite")
             return {"success": False, "skipped": True, "message": "Task already running"}
 
+        RedisConfig.set_full_sync_in_progress(timeout=lock_timeout)
         try:
             env_limit = _as_int(os.getenv("CELERY_SYNC_LIMIT"), None)
             limit = limit or env_limit or 200
@@ -154,3 +173,5 @@ def full_sync_task(self, limit=None):
         except Exception:
             logger.exception("[Celery] Error inesperado en full_sync_task")
             raise
+        finally:
+            RedisConfig.clear_full_sync_in_progress()
