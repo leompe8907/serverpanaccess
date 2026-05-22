@@ -31,8 +31,8 @@ Checklist ordenada de **mayor a menor** importancia. Resolver **un ítem a la ve
 | 3 | [x] | **P0** | Prod: `DEBUG=false`, `SECRET_KEY` fuerte, `ALLOWED_HOSTS` con dominios reales | Seguridad; evitar stack traces públicos | **[SEGURIDAD_PRODUCCION_UBUNTU.md](./SEGURIDAD_PRODUCCION_UBUNTU.md)** | `check_deploy --strict`; Host inválido → 400 |
 | 4 | [x] | **P0** | Configurar **`CORS_ALLOWED_ORIGINS`** con el front real | Portal en otro host falla sin esto | **[CORS_PRODUCCION_UBUNTU.md](./CORS_PRODUCCION_UBUNTU.md)** | `check_deploy --strict`; preflight OPTIONS OK |
 | 5 | [x] | **P0** | **TLS** (nginx) + no exponer sync/admin a internet abierto | Sync pesado; superficie de ataque | **[NGINX_TLS_Y_RESTRICCION_UBUNTU.md](./NGINX_TLS_Y_RESTRICCION_UBUNTU.md)** + `deploy/nginx/` | HTTPS; sync 403 desde internet |
-| 6 | [ ] | **P0** | Proteger o eliminar **`GET /wind/login/`** (`AllowAny`, expone `session_id`) | Sesión de sistema PanAccess filtrada | `wind/functions/login.py` | Sin auth → 401/404; con admin si se mantiene diagnóstico |
-| 7 | [ ] | **P0** | Endurecer **`create-subscriber/`** (JWT, rate limit, o restricción red) | Abuso = muchas llamadas PanAccess | `create_subscriber.py` | Intentos anónimos masivos limitados/bloqueados |
+| 6 | [x] | **P0** | Proteger endpoint sesión PanAccess (ya no en `/wind/login/`) | Sesión de sistema no se filtra al público | `ops/panaccess-session/`, `PANACCESS_OPS_HTTP_ENABLED` | Anónimo → 401/403; portal `/wind/login/` HTML intacto |
+| 7 | [x] | **P0** | Endurecer **`create-subscriber/`** (throttle + flag; sin JWT en registro) | Abuso = muchas llamadas PanAccess | **[REGISTRO_PUBLICO_SEGURIDAD.md](./REGISTRO_PUBLICO_SEGURIDAD.md)** | 429 tras límite; `CREATE_SUBSCRIBER_PUBLIC_ENABLED=false` → 403 |
 | 8 | [ ] | **P1** | Mantener **`FULL_SYNC_HTTP_ENABLED=false`** en prod | Correctivo solo por Celery | `.env` | POST `/wind/full-sync/` → 403 |
 | 9 | [ ] | **P1** | **`PANACCESS_SESSION_USE_REDIS=true`** con varios workers Gunicorn | Evita re-login PanAccess por worker | `.env` | 2+ workers; una sesión en Redis; APIs OK |
 | 10 | [ ] | **P1** | No usar **`/wind/sync-*`** en horario pico; solo emergencias staff | Sync HTTP es **síncrono** en worker web (hasta 600 s) | Operación | Documentar procedimiento interno |
@@ -45,7 +45,7 @@ Checklist ordenada de **mayor a menor** importancia. Resolver **un ítem a la ve
 | 17 | [ ] | **P2** | Orquestador usa **`GET /ready/`** antes de tráfico | Probe ya implementado | `wind/views_health.py` | LB marca unhealthy si DB/Redis cae |
 | 18 | [ ] | **P2** | **Sentry** (`SENTRY_DSN`) en staging/prod | Errores nocturnos visibles | `.env` | Forzar error de prueba → evento en Sentry |
 | 19 | [ ] | **P2** | Locust en **staging + PostgreSQL** (perfil, no sync) | Límites reales | `scripts/load/locustfile.py` | Informe p95 latencia perfil |
-| 20 | [ ] | **P2** | Revisar **`singleton/`** y **`logged-in/`** (`AllowAny`) | Solo diagnóstico | `wind/functions/` | Desactivados o solo staff en prod |
+| 20 | [x] | **P2** | Revisar **`singleton/`** y **`logged-in/`** (`AllowAny`) | Solo diagnóstico | `wind/functions/` | Staff + `PANACCESS_OPS_HTTP_ENABLED` (hecho con #6) |
 | 21 | [ ] | **P2** | Actualizar **`ANALISIS_ESCALABILIDAD.md`** (Beat, throttling, caché) | Doc desactualizado | `docs/` | Revisión con este roadmap |
 | 22 | [ ] | **P2** | Alertas/logs Celery: `skipped`, duración `full_sync_task` | Saber si correctivo falló | Logs / Sentry | Simular lock; ver alerta |
 | 23 | [ ] | **P3** | `SECURE_*` en Django si TLS no solo en nginx | Defensa en profundidad | `settings.py` | Cookies secure detrás de proxy |
@@ -78,6 +78,8 @@ Checklist ordenada de **mayor a menor** importancia. Resolver **un ítem a la ve
 | 3 | 2026-05-22 | — | `check_deploy`, `SEGURIDAD_PRODUCCION_UBUNTU.md`, `PRODUCTION_HTTPS`, `.env` sin `*`. **Pendiente:** dominios reales en Ubuntu + `--strict`. |
 | 4 | 2026-05-22 | — | CORS en settings (sin allow-all), `CORS_PRODUCCION_UBUNTU.md`, `check_deploy` valida CORS. **Pendiente:** URLs https del front en Ubuntu. |
 | 5 | 2026-05-22 | — | `deploy/nginx/win-backend.conf`, middleware IP, `NGINX_TLS_Y_RESTRICCION_UBUNTU.md`. **Pendiente:** certbot + ufw en Ubuntu. |
+| 6 | 2026-05-22 | — | Ruta `ops/panaccess-session/`, staff only, sin `session_id`; fix URL duplicada en `urls.py`. |
+| 7 | 2026-05-22 | — | `RegisterThrottle`, `CREATE_SUBSCRIBER_PUBLIC_ENABLED`, nginx limit_req, doc registro. |
 
 ---
 
@@ -88,6 +90,7 @@ Checklist ordenada de **mayor a menor** importancia. Resolver **un ítem a la ve
 - [SEGURIDAD_PRODUCCION_UBUNTU.md](./SEGURIDAD_PRODUCCION_UBUNTU.md) — ítem **#3** (DEBUG, SECRET_KEY, ALLOWED_HOSTS)
 - [CORS_PRODUCCION_UBUNTU.md](./CORS_PRODUCCION_UBUNTU.md) — ítem **#4** (orígenes del frontend)
 - [NGINX_TLS_Y_RESTRICCION_UBUNTU.md](./NGINX_TLS_Y_RESTRICCION_UBUNTU.md) — ítem **#5** (TLS + bloqueo sync público)
+- [REGISTRO_PUBLICO_SEGURIDAD.md](./REGISTRO_PUBLICO_SEGURIDAD.md) — ítem **#7** (create-subscriber)
 - [DESPLIEGUE.md](./DESPLIEGUE.md) — comandos worker, beat, variables `.env`
 - [ANALISIS_ESCALABILIDAD.md](./ANALISIS_ESCALABILIDAD.md) — contexto de carga (revisar tras ítem 21)
 

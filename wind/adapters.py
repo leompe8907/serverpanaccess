@@ -26,6 +26,7 @@ def create_subscriber_in_panaccess(email, first_name, last_name, auto_generate_c
     }
     # Asegurarse de que sea un POST request con application/json para que DRF lo parsee en request.data
     request = factory.post('/dummy/', data=json.dumps(data), content_type='application/json')
+    request.wind_internal_create = True  # bypass throttling registro (flujo social interno)
     response = create_subscriber_view(request)
     return response.data
 

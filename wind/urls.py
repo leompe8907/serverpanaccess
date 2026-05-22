@@ -1,6 +1,6 @@
 from django.urls import path
 from wind.functions import (
-    login,
+    panaccess_session_status_view,
     singleton,
     logged_in_view,
     sync_subscribers_view,
@@ -45,8 +45,8 @@ urlpatterns = [
     path('register/', register_view, name='register_web'),
     # Página para mostrar credenciales recién creadas (token firmado)
     path('credentials/', credentials_view, name='credentials_web'),
-    # Autenticación PanAccess legada
-    path('login/', login, name='login'),
+    # Operaciones PanAccess (staff; no usar /wind/login/ — es el portal HTML)
+    path('ops/panaccess-session/', panaccess_session_status_view, name='panaccess_session'),
     path('logged-in/', logged_in_view, name='logged_in'),
     path('singleton/', singleton, name='singleton'),
     

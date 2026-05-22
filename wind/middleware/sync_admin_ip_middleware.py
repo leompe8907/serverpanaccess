@@ -17,7 +17,7 @@ _PROTECTED_PREFIXES = (
     "/wind/compare-and-update",
     "/wind/full-sync",
     "/wind/singleton",
-    "/wind/login/",
+    "/wind/ops/",
     "/api/v1/tasks/",
 )
 

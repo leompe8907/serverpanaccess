@@ -18,3 +18,14 @@ class ProfileThrottle(UserRateThrottle):
 
 class SyncAdminThrottle(UserRateThrottle):
     scope = "sync_admin"
+
+
+class RegisterThrottle(AnonRateThrottle):
+    """Registro público /wind/create-subscriber/ — límite bajo por IP."""
+
+    scope = "register"
+
+    def allow_request(self, request, view):
+        if getattr(request, "wind_internal_create", False):
+            return True
+        return super().allow_request(request, view)

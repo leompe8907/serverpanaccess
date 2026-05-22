@@ -4,12 +4,18 @@ Vista para crear nuevos suscriptores en PanAccess.
 El código del suscriptor (documento) se envía desde el frontend.
 El supervisor se fija automáticamente a "AUTOMATICO".
 Incluye validación de email y documento para prevenir cuentas duplicadas.
+
+Seguridad (roadmap #7): registro público sin JWT, pero con throttling estricto
+y posibilidad de desactivar el endpoint HTTP en prod (flujo social usa bypass interno).
 """
 import logging
-from rest_framework.decorators import api_view, permission_classes
+import os
+
+from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework import status
+from wind.throttles import RegisterThrottle
 from django.utils import timezone
 from django.core.signing import TimestampSigner
 
@@ -29,8 +35,17 @@ hcId = PanaccessConfig.HCID
 logger = logging.getLogger(__name__)
 
 
+def _create_subscriber_public_enabled() -> bool:
+    return os.getenv("CREATE_SUBSCRIBER_PUBLIC_ENABLED", "true").lower() in (
+        "true",
+        "1",
+        "yes",
+    )
+
+
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@throttle_classes([RegisterThrottle])
 def create_subscriber_view(request):
     """
     Crea un nuevo suscriptor en PanAccess.
@@ -57,6 +72,18 @@ def create_subscriber_view(request):
         "caf": "..."                    // Opcional
     }
     """
+    if not getattr(request, "wind_internal_create", False) and not _create_subscriber_public_enabled():
+        return Response(
+            {
+                "success": False,
+                "message": (
+                    "Registro HTTP deshabilitado. Use login social o "
+                    "CREATE_SUBSCRIBER_PUBLIC_ENABLED=true en entornos controlados."
+                ),
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
     serializer = CreateSubscriberSerializer(data=request.data)
     
     if not serializer.is_valid():

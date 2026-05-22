@@ -156,15 +156,17 @@ Las páginas `login-test` y `login-test-facebook` siguen disponibles como refere
 
 ```http
 GET http://localhost:8000/wind/singleton/
+Authorization: Bearer <token_staff>
 ```
 
-Respuesta esperada: `has_session: true` y validación `cvLoggedIn` OK.
+Requiere usuario **staff** y `PANACCESS_OPS_HTTP_ENABLED=true`. No devuelve `session_id`.
 
 ```http
-GET http://localhost:8000/wind/login/
+GET http://localhost:8000/wind/ops/panaccess-session/
+Authorization: Bearer <token_staff>
 ```
 
-Renueva o confirma la sesión del singleton (cuenta de servicio, no usuario final).
+Estado de sesión del singleton (sin filtrar `session_id`). **No** usar la ruta `/wind/login/` para esto: esa URL es el **portal HTML** de usuarios.
 
 ---
 

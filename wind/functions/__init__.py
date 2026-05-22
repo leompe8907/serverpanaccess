@@ -3,7 +3,7 @@ Módulo de funciones para la aplicación wind.
 
 Este módulo exporta todas las funciones organizadas por archivo.
 """
-from wind.functions.login import login
+from wind.functions.login import panaccess_session_status_view
 from wind.functions.singleton import singleton
 from wind.functions.logged_in import logged_in_view
 from wind.functions.sync_subscribers import (
@@ -56,7 +56,7 @@ from wind.functions.getProducts import (
 )
 
 __all__ = [
-    'login',
+    'panaccess_session_status_view',
     'singleton',
     'logged_in_view',
     'sync_subscribers_view',

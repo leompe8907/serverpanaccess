@@ -190,6 +190,7 @@ REST_FRAMEWORK = {
         'user': os.getenv('DRF_THROTTLE_USER', '600/minute'),
         'profile': os.getenv('DRF_THROTTLE_PROFILE', '120/minute'),
         'sync_admin': os.getenv('DRF_THROTTLE_SYNC_ADMIN', '30/minute'),
+        'register': os.getenv('DRF_THROTTLE_REGISTER', '10/hour'),
     },
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,

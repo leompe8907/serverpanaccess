@@ -3,8 +3,11 @@ Vista para validar si un sessionId está vigente.
 
 Endpoint que prueba la función logged_in() y el método check_session() del cliente.
 """
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
+import os
+
+from rest_framework.decorators import api_view, permission_classes, throttle_classes
+from rest_framework.permissions import IsAdminUser
+from wind.throttles import SyncAdminThrottle
 from rest_framework.response import Response
 from rest_framework import status
 
@@ -19,34 +22,46 @@ from wind.exceptions import (
 )
 
 
+def _panaccess_ops_http_enabled() -> bool:
+    return os.getenv("PANACCESS_OPS_HTTP_ENABLED", "false").lower() in ("true", "1", "yes")
+
+
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([IsAdminUser])
+@throttle_classes([SyncAdminThrottle])
 def logged_in_view(request):
     """
     Vista para validar si un sessionId está vigente.
     
     Prueba la función logged_in() y el método check_session() del cliente.
     """
+    if not _panaccess_ops_http_enabled():
+        return Response(
+            {
+                "success": False,
+                "message": "Endpoint de operaciones deshabilitado (PANACCESS_OPS_HTTP_ENABLED).",
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
     client = PanAccessClient()
-    
+
     try:
-        # Primero autenticarse para obtener un sessionId
         session_id = client.authenticate()
-        
-        # Verificar si la sesión es válida usando la función directa
         is_valid_direct = logged_in(session_id)
-        
-        # Verificar usando el método del cliente
         is_valid_client = client.check_session()
-        
-        return Response({
-            'success': True,
-            'message': 'Verificación de sesión exitosa',
-            'session_id': session_id,
-            'is_valid_direct': is_valid_direct,
-            'is_valid_client': is_valid_client,
-            'both_match': is_valid_direct == is_valid_client
-        }, status=status.HTTP_200_OK)
+
+        return Response(
+            {
+                "success": True,
+                "message": "Verificación de sesión exitosa",
+                "session_active": bool(session_id),
+                "is_valid_direct": is_valid_direct,
+                "is_valid_client": is_valid_client,
+                "both_match": is_valid_direct == is_valid_client,
+            },
+            status=status.HTTP_200_OK,
+        )
         
     except PanAccessAuthenticationError as e:
         return Response({
