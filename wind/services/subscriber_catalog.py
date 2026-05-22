@@ -11,8 +11,8 @@ from django.contrib.auth import get_user_model
 from django.utils.dateparse import parse_datetime
 from django.utils.formats import date_format
 
-from wind.functions.getSmartcard import CallListSmartcards
-from wind.functions.getSubscriber import CallListExtendedSubscribers, extract_first_email
+from wind.functions.getSmartcard import fetch_subscriber_smartcards_from_panaccess
+from wind.functions.getSubscriber import CallGetSubscriber, extract_first_email
 from wind.models import (
     ListOfProducts,
     ListOfSmartcards,
@@ -277,31 +277,27 @@ def _upsert_smartcard_entry(entry: dict) -> None:
 
 
 def _sync_subscriber_row_from_panaccess(subscriber_code: str) -> ListOfSubscriber | None:
-    """Actualiza ListOfSubscriber desde PanAccess (datos extendidos)."""
-    offset = 0
-    page_size = 50
-    while offset < 500:
-        try:
-            answer = CallListExtendedSubscribers(offset=offset, limit=page_size)
-        except Exception as exc:
-            logger.warning("No se pudo listar suscriptores PanAccess: %s", exc)
-            return ListOfSubscriber.objects.filter(code=subscriber_code).first()
+    """
+    Actualiza ListOfSubscriber desde PanAccess por código (roadmap #12).
 
-        rows = answer.get("extendedSubscriberEntries") or []
-        if not rows:
-            break
+    Una llamada getSubscriber / getExtendedSubscriber; sin barrer getListOfExtendedSubscribers.
+    """
+    code = str(subscriber_code).strip() if subscriber_code else ""
+    if not code:
+        return None
 
-        for row in rows:
-            code = row.get("subscriberCode") or row.get("code")
-            if code != subscriber_code:
-                continue
+    try:
+        row = CallGetSubscriber(subscriber_code=code)
+        if row:
             return _upsert_subscriber_from_panaccess_row(row)
+    except Exception as exc:
+        logger.warning(
+            "No se pudo sincronizar suscriptor %s desde PanAccess (getSubscriber): %s",
+            code,
+            exc,
+        )
 
-        if len(rows) < page_size:
-            break
-        offset += page_size
-
-    return ListOfSubscriber.objects.filter(code=subscriber_code).first()
+    return ListOfSubscriber.objects.filter(code=code).first()
 
 
 def _serialize_subscriber_detail(sub: ListOfSubscriber) -> dict:
@@ -355,41 +351,37 @@ def build_subscriber_detail_payload(
     return _serialize_subscriber_detail(sub)
 
 
-def refresh_smartcards_from_panaccess(subscriber_code: str, target_sns: list[str] | None = None) -> int:
+def refresh_smartcards_from_panaccess(
+    subscriber_code: str,
+    target_sns: list[str] | None = None,
+    *,
+    profile_mode: bool = True,
+) -> int:
     """
-    Trae smartcards de PanAccess y las guarda en ListOfSmartcards.
-    Filtra por subscriberCode o por lista de SN del suscriptor.
+    Trae smartcards del abonado desde PanAccess (roadmap #13).
+
+    Perfil: listado filtrado por subscriberCode + getSmartcard por SN;
+    sin escanear 15×100 tarjetas globales salvo fallback explícito en .env.
     """
-    max_pages = int(os.getenv("PANACCESS_SMARTCARD_SYNC_MAX_PAGES", "15"))
-    limit = 100
-    offset = 0
+    result = fetch_subscriber_smartcards_from_panaccess(
+        subscriber_code,
+        target_sns,
+        profile_mode=profile_mode,
+    )
     saved = 0
-    target_set = set(target_sns or [])
+    for entry in result.get("entries") or []:
+        if isinstance(entry, dict):
+            _upsert_smartcard_entry(entry)
+            saved += 1
 
-    for _ in range(max_pages):
-        try:
-            answer = CallListSmartcards(offset=offset, limit=limit)
-        except Exception as exc:
-            logger.warning("Error listando smartcards PanAccess: %s", exc)
-            break
-
-        entries = answer.get("smartcardEntries") or []
-        if not entries:
-            break
-
-        for entry in entries:
-            if not isinstance(entry, dict):
-                continue
-            sn = entry.get("sn")
-            sub_code = entry.get("subscriberCode")
-            if sub_code == subscriber_code or (sn and sn in target_set):
-                _upsert_smartcard_entry(entry)
-                saved += 1
-
-        if len(entries) < limit:
-            break
-        offset += limit
-
+    if saved:
+        logger.info(
+            "Smartcards perfil/abonado %s: %s guardadas (SN objetivo=%s, global_fallback=%s)",
+            subscriber_code,
+            saved,
+            result.get("target_sns"),
+            result.get("global_fallback"),
+        )
     return saved
 
 
@@ -403,7 +395,11 @@ def build_subscriber_products_payload(subscriber_code: str, *, refresh_if_empty:
     if refresh_if_empty and not smartcards_qs.exists():
         subscriber = _sync_subscriber_row_from_panaccess(subscriber_code) or subscriber
         sns = _subscriber_smartcard_sns(subscriber)
-        refresh_smartcards_from_panaccess(subscriber_code, target_sns=sns)
+        refresh_smartcards_from_panaccess(
+            subscriber_code,
+            target_sns=sns,
+            profile_mode=True,
+        )
         smartcards_qs = get_smartcards_for_subscriber(subscriber_code)
 
     smartcards_payload = []

@@ -1,7 +1,12 @@
 """
 Funciones para obtener y sincronizar smartcards desde PanAccess.
 """
+from __future__ import annotations
+
 import logging
+import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 from django.db import transaction
 from wind.models import ListOfSmartcards
 from wind.serializers import ListOfSmartcardsSerializer
@@ -10,6 +15,13 @@ from wind.services import get_panaccess
 from wind.exceptions import PanAccessException
 
 logger = logging.getLogger(__name__)
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
 
 
 def DataBaseEmpty():
@@ -260,27 +272,93 @@ def sync_smartcards(session_id=None, limit=100):
         logger.error(f"Error inesperado: {str(e)}", exc_info=True)
         raise
 
-def CallListSmartcards(session_id=None, offset=0, limit=100):
+def _normalize_smartcard_api_answer(answer, sn: str | None = None) -> dict | None:
+    if answer is None:
+        return None
+    if isinstance(answer, list):
+        if not answer:
+            return None
+        answer = answer[0]
+    if not isinstance(answer, dict):
+        return None
+
+    row = answer
+    for key in ("smartcardEntry", "smartcard", "entry", "answer"):
+        nested = row.get(key)
+        if isinstance(nested, dict):
+            row = nested
+            break
+
+    serial = row.get("sn") or row.get("serialNumber") or sn
+    if not serial or not str(serial).strip():
+        return None
+
+    normalized = dict(row)
+    normalized["sn"] = str(serial).strip()
+    return normalized
+
+
+def CallGetSmartcard(session_id=None, sn=None):
     """
-    Llama a la API de Panaccess para obtener la lista de smartcards.
-    
-    Args:
-        session_id: ID de sesión (opcional, se usa el singleton si no se proporciona)
-        offset: Índice de inicio para paginación
-        limit: Cantidad máxima de registros a obtener
-    
-    Returns:
-        Diccionario con la respuesta de PanAccess
+    Obtiene una smartcard por número de serie (1 llamada PanAccess).
+    """
+    del session_id
+
+    if not sn or not str(sn).strip():
+        raise ValueError("sn es requerido")
+
+    serial = str(sn).strip()
+    panaccess = get_panaccess()
+    attempts = (
+        ("getSmartcard", {"sn": serial}),
+        ("getSmartcard", {"serialNumber": serial}),
+        ("getSmartcardBySn", {"sn": serial}),
+        ("getSmartcardBySerialNumber", {"sn": serial}),
+    )
+    last_error = None
+
+    for api_name, parameters in attempts:
+        try:
+            response = panaccess.call(api_name, parameters)
+            if not response.get("success"):
+                last_error = response.get("errorMessage", api_name)
+                continue
+            row = _normalize_smartcard_api_answer(response.get("answer"), serial)
+            if row:
+                logger.debug("Smartcard %s obtenida vía %s", serial, api_name)
+                return row
+        except PanAccessException as exc:
+            last_error = str(exc)
+            logger.debug("%s no disponible para SN %s: %s", api_name, serial, exc)
+
+    raise PanAccessException(
+        last_error or f"No se pudo obtener smartcard {serial}"
+    )
+
+
+def CallListSmartcards(
+    session_id=None,
+    offset=0,
+    limit=100,
+    subscriber_code: str | None = None,
+):
+    """
+    Lista smartcards (opcionalmente filtradas por subscriberCode en la API).
     """
     try:
         panaccess = get_panaccess()
         parameters = {
-            'offset': offset,
-            'limit': limit,
-            'orderDir': 'DESC',
-            'orderBy': 'sn'
+            "offset": offset,
+            "limit": limit,
+            "orderDir": "DESC",
+            "orderBy": "sn",
         }
-        response = panaccess.call('getListOfSmartcards', parameters)
+        if subscriber_code:
+            code = str(subscriber_code).strip()
+            parameters["subscriberCode"] = code
+            parameters["code"] = code
+
+        response = panaccess.call("getListOfSmartcards", parameters)
 
         if response.get('success'):
             return response.get('answer', {})
@@ -294,4 +372,134 @@ def CallListSmartcards(session_id=None, offset=0, limit=100):
     except Exception as e:
         logger.error(f"Error llamada API: {str(e)}", exc_info=True)
         raise
+
+
+def _fetch_one_smartcard_by_sn(sn: str) -> dict | None:
+    try:
+        return CallGetSmartcard(sn=sn)
+    except Exception as exc:
+        logger.debug("getSmartcard falló para %s: %s", sn, exc)
+        return None
+
+
+def fetch_subscriber_smartcards_from_panaccess(
+    subscriber_code: str,
+    target_sns: list[str] | None = None,
+    *,
+    profile_mode: bool = True,
+) -> dict:
+    """
+    Trae smartcards de un abonado sin barrer el catálogo global (roadmap #13).
+
+    1. getListOfSmartcards con subscriberCode (pocas páginas).
+    2. getSmartcard por cada SN conocido del suscriptor.
+    3. Escaneo global solo si profile_mode=false o PANACCESS_SMARTCARD_GLOBAL_FALLBACK=true.
+    """
+    code = str(subscriber_code).strip() if subscriber_code else ""
+    target_set = {str(s).strip() for s in (target_sns or []) if s and str(s).strip()}
+    fetched_sns: set[str] = set()
+    entries: list[dict] = []
+
+    max_pages_subscriber = _env_int("PANACCESS_SMARTCARD_SUBSCRIBER_MAX_PAGES", 5)
+    page_limit = _env_int("PANACCESS_SMARTCARD_PAGE_LIMIT", 100)
+
+    if code:
+        offset = 0
+        for _ in range(max_pages_subscriber):
+            try:
+                answer = CallListSmartcards(
+                    offset=offset,
+                    limit=page_limit,
+                    subscriber_code=code,
+                )
+            except PanAccessException as exc:
+                logger.warning(
+                    "Listado smartcards por abonado %s falló (offset=%s): %s",
+                    code,
+                    offset,
+                    exc,
+                )
+                break
+
+            batch = answer.get("smartcardEntries") or []
+            if not batch:
+                break
+
+            for entry in batch:
+                if not isinstance(entry, dict):
+                    continue
+                sn = entry.get("sn")
+                if not sn:
+                    continue
+                sn = str(sn).strip()
+                sub = entry.get("subscriberCode")
+                if sub and str(sub).strip() != code and sn not in target_set:
+                    continue
+                entries.append(entry)
+                fetched_sns.add(sn)
+
+            if len(batch) < page_limit:
+                break
+            offset += page_limit
+
+    missing_sns = [sn for sn in target_set if sn not in fetched_sns]
+    if missing_sns:
+        workers = max(
+            1,
+            min(_env_int("PANACCESS_SMARTCARD_SN_CONCURRENCY", 5), 16),
+        )
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {
+                executor.submit(_fetch_one_smartcard_by_sn, sn): sn
+                for sn in missing_sns
+            }
+            for future in as_completed(futures):
+                row = future.result()
+                if row:
+                    if code and not row.get("subscriberCode"):
+                        row["subscriberCode"] = code
+                    entries.append(row)
+                    if row.get("sn"):
+                        fetched_sns.add(str(row["sn"]).strip())
+
+    use_global = os.getenv("PANACCESS_SMARTCARD_GLOBAL_FALLBACK", "").lower() in (
+        "true",
+        "1",
+        "yes",
+    )
+    if not profile_mode:
+        use_global = True
+
+    global_saved = 0
+    if use_global and code and not entries:
+        max_pages = _env_int("PANACCESS_SMARTCARD_SYNC_MAX_PAGES", "15")
+        offset = 0
+        for _ in range(max_pages):
+            try:
+                answer = CallListSmartcards(offset=offset, limit=page_limit)
+            except PanAccessException:
+                break
+            batch = answer.get("smartcardEntries") or []
+            if not batch:
+                break
+            for entry in batch:
+                if not isinstance(entry, dict):
+                    continue
+                sn = entry.get("sn")
+                sub = entry.get("subscriberCode")
+                if sub == code or (sn and sn in target_set):
+                    entries.append(entry)
+                    global_saved += 1
+            if len(batch) < page_limit:
+                break
+            offset += page_limit
+
+    return {
+        "subscriber_code": code,
+        "entries": entries,
+        "fetched_sns": len(fetched_sns),
+        "target_sns": len(target_set),
+        "global_fallback": use_global and global_saved > 0,
+        "global_entries": global_saved,
+    }
 

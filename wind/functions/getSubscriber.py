@@ -855,6 +855,81 @@ def sync_subscribers(session_id=None, limit=100):
         logger.error(f"Error inesperado: {str(e)}", exc_info=True)
         raise
 
+def _normalize_subscriber_api_answer(answer, subscriber_code: str) -> dict | None:
+    """Convierte la respuesta de getSubscriber / getExtendedSubscriber a fila extendida."""
+    if answer is None:
+        return None
+    if isinstance(answer, list):
+        if not answer:
+            return None
+        answer = answer[0]
+    if not isinstance(answer, dict):
+        return None
+
+    row = answer
+    for key in (
+        "extendedSubscriberEntry",
+        "subscriberEntry",
+        "subscriber",
+        "entry",
+        "answer",
+    ):
+        nested = row.get(key)
+        if isinstance(nested, dict):
+            row = nested
+            break
+
+    code = row.get("subscriberCode") or row.get("code") or subscriber_code
+    if not code or not str(code).strip():
+        return None
+
+    normalized = dict(row)
+    normalized["subscriberCode"] = str(code).strip()
+    normalized.setdefault("code", normalized["subscriberCode"])
+    return normalized
+
+
+def CallGetSubscriber(session_id=None, subscriber_code=None):
+    """
+    Obtiene un suscriptor por código (1 llamada PanAccess).
+
+    Prueba getSubscriber / getExtendedSubscriber antes de listar catálogos.
+    """
+    del session_id  # singleton
+
+    if not subscriber_code or not str(subscriber_code).strip():
+        raise ValueError("subscriber_code es requerido")
+
+    code = str(subscriber_code).strip()
+    panaccess = get_panaccess()
+
+    attempts = (
+        ("getSubscriber", {"code": code}),
+        ("getSubscriber", {"subscriberCode": code}),
+        ("getExtendedSubscriber", {"subscriberCode": code}),
+        ("getExtendedSubscriber", {"code": code}),
+    )
+    last_error = None
+
+    for api_name, parameters in attempts:
+        try:
+            response = panaccess.call(api_name, parameters)
+            if not response.get("success"):
+                last_error = response.get("errorMessage", api_name)
+                continue
+            row = _normalize_subscriber_api_answer(response.get("answer"), code)
+            if row:
+                logger.info("Suscriptor %s obtenido vía %s", code, api_name)
+                return row
+        except PanAccessException as exc:
+            last_error = str(exc)
+            logger.debug("%s no disponible para %s: %s", api_name, code, exc)
+
+    raise PanAccessException(
+        last_error or f"No se pudo obtener el suscriptor {code} por API directa"
+    )
+
+
 def CallListExtendedSubscribers(session_id=None, offset=0, limit=100):
     """
     Llama a la API de Panaccess para obtener la lista extendida de suscriptores.

@@ -37,8 +37,8 @@ Checklist ordenada de **mayor a menor** importancia. Resolver **un ítem a la ve
 | 9 | [x] | **P1** | **`PANACCESS_SESSION_USE_REDIS=true`** con varios workers Gunicorn | Evita re-login PanAccess por worker | **[PANACCESS_SESION_REDIS.md](./PANACCESS_SESION_REDIS.md)** | `check_redis` → panaccess_session_store ok |
 | 10 | [ ] | **P1** | No usar **`/wind/sync-*`** en horario pico; solo emergencias staff | Sync HTTP es **síncrono** en worker web (hasta 600 s) | Operación | Documentar procedimiento interno |
 | 11 | [x] | **P1** | Optimizar **login info en full sync** (no 1 API por suscriptor) | Correctivo nocturno puede tardar horas | **[LOGIN_INFO_SYNC.md](./LOGIN_INFO_SYNC.md)** | `sync_subscribers_login_info`; log `list_api` o `parallel` |
-| 12 | [ ] | **P1** | Perfil: API PanAccess **por código**, no listar todo el catálogo | `_sync_subscriber_row_from_panaccess` es O(n) | `subscriber_catalog.py` | `GET /api/v1/profile/me/` con 1 llamada PanAccess máx. |
-| 13 | [ ] | **P1** | Smartcards en perfil: filtrar por abonado, no paginar todo el mundo | Hasta 15×100 entradas globales | `subscriber_catalog.py` | `profile/products` rápido con BD ya sincronizada |
+| 12 | [x] | **P1** | Perfil: API PanAccess **por código**, no listar todo el catálogo | `_sync_subscriber_row_from_panaccess` es O(n) | **[PERFIL_PANACCESS.md](./PERFIL_PANACCESS.md)** | `GET /api/v1/profile/me/` → `getSubscriber` en logs |
+| 13 | [x] | **P1** | Smartcards en perfil: filtrar por abonado, no paginar todo el mundo | Hasta 15×100 entradas globales | **[PERFIL_SMARTCARDS.md](./PERFIL_SMARTCARDS.md)** | `profile/products` sin escaneo global |
 | 14 | [ ] | **P1** | Relajar **`SocialConfig.validate()`** (solo proveedores usados) | Arranque exige Google **y** Facebook hoy | `appConfig.py` | Boot sin Facebook si solo usas Google |
 | 15 | [ ] | **P1** | Checklist arranque: variables PanAccess completas en prod | `PanaccessConfig.validate()` al importar settings | `.env.example` | Servidor arranca sin `EnvironmentError` |
 | 16 | [ ] | **P2** | Activar **systemd** en Ubuntu (plantillas en `deploy/systemd/`) | Servicios reinician solos | Copiar y `systemctl enable` | `systemctl status` los 3 servicios |
@@ -83,6 +83,8 @@ Checklist ordenada de **mayor a menor** importancia. Resolver **un ítem a la ve
 | 8 | 2026-05-22 | — | `check_deploy --strict` valida full-sync HTTP; doc `FULL_SYNC_PRODUCCION.md`. |
 | 9 | 2026-05-22 | — | `.env` explícito, `check_deploy`/`check_redis` validan sesión Redis; doc. |
 | 11 | 2026-05-22 | — | Login info: API listada + paralelo + bulk upsert; `LOGIN_INFO_SYNC.md`. |
+| 12 | 2026-05-22 | — | `CallGetSubscriber`; perfil sin listar catálogo extendido. |
+| 13 | 2026-05-22 | — | `CallGetSmartcard` + list por abonado; perfil sin 15×100 global. |
 
 ---
 
@@ -98,6 +100,8 @@ Checklist ordenada de **mayor a menor** importancia. Resolver **un ítem a la ve
 - [PANACCESS_SESION_REDIS.md](./PANACCESS_SESION_REDIS.md) — ítem **#9** (sesión PanAccess multi-worker)
 - [SYNC_FLUJO_TAREAS.md](./SYNC_FLUJO_TAREAS.md) — flujo deploy / Beat / full-sync
 - [LOGIN_INFO_SYNC.md](./LOGIN_INFO_SYNC.md) — ítem **#11** (login info en full-sync)
+- [PERFIL_PANACCESS.md](./PERFIL_PANACCESS.md) — ítem **#12** (profile/me por código)
+- [PERFIL_SMARTCARDS.md](./PERFIL_SMARTCARDS.md) — ítem **#13** (profile/products por abonado)
 - [DESPLIEGUE.md](./DESPLIEGUE.md) — comandos worker, beat, variables `.env`
 - [ANALISIS_ESCALABILIDAD.md](./ANALISIS_ESCALABILIDAD.md) — contexto de carga (revisar tras ítem 21)
 
