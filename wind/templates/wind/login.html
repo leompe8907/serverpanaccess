@@ -7,7 +7,6 @@
     <title>Iniciar sesión | Wind</title>
     <link rel="stylesheet" href="{% static 'wind/css/app.css' %}" />
     <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <script async defer crossorigin="anonymous" src="https://connect.facebook.net/es_ES/sdk.js"></script>
   </head>
   <body class="app-body">
     <div class="app-wrap">
@@ -126,25 +125,29 @@
         }
       });
 
+      let googleInitialized = false;
+
+      function onGoogleCredential(response) {
+        clearAlert();
+        fetch("/wind/auth/google/", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ access_token: response.credential }),
+        })
+          .then((res) => res.json().then((data) => ({ res, data })))
+          .then(({ res, data }) => {
+            if (!res.ok) throw new Error(data.detail || data.message || "Error con Google");
+            return handleAuthSuccess(data);
+          })
+          .catch((err) => showAlert(err.message, "error"));
+      }
+
       function initGoogle() {
-        if (!window.google || !google.accounts) return;
+        if (googleInitialized || !window.google || !google.accounts) return;
+        googleInitialized = true;
         google.accounts.id.initialize({
           client_id: GOOGLE_CLIENT_ID,
-          callback: async (response) => {
-            clearAlert();
-            try {
-              const res = await fetch("/wind/auth/google/", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ access_token: response.credential }),
-              });
-              const data = await res.json();
-              if (!res.ok) throw new Error(data.detail || data.message || "Error con Google");
-              await handleAuthSuccess(data);
-            } catch (err) {
-              showAlert(err.message, "error");
-            }
-          },
+          callback: onGoogleCredential,
         });
         google.accounts.id.renderButton(document.getElementById("google-btn-container"), {
           theme: "outline",
@@ -168,34 +171,49 @@
         FB.init({ appId: FACEBOOK_APP_ID, cookie: true, xfbml: false, version: "v20.0" });
       };
 
+      function onFacebookLoginResponse(response) {
+        const btn = document.getElementById("btn-facebook");
+        if (!response || !response.authResponse) {
+          showAlert("Inicio de sesión con Facebook cancelado.", "error");
+          btn.disabled = false;
+          return;
+        }
+        fetch("/wind/auth/facebook/", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ access_token: response.authResponse.accessToken }),
+        })
+          .then((res) => res.json().then((data) => ({ res, data })))
+          .then(({ res, data }) => {
+            if (!res.ok) throw new Error(data.detail || data.message || "Error con Facebook");
+            return handleAuthSuccess(data);
+          })
+          .catch((err) => {
+            showAlert(err.message, "error");
+            btn.disabled = false;
+          });
+      }
+
       document.getElementById("btn-facebook").addEventListener("click", () => {
         clearAlert();
         const btn = document.getElementById("btn-facebook");
         btn.disabled = true;
-        FB.login(
-          async (response) => {
-            if (!response || !response.authResponse) {
-              showAlert("Inicio de sesión con Facebook cancelado.", "error");
-              btn.disabled = false;
-              return;
-            }
-            try {
-              const res = await fetch("/wind/auth/facebook/", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ access_token: response.authResponse.accessToken }),
-              });
-              const data = await res.json();
-              if (!res.ok) throw new Error(data.detail || data.message || "Error con Facebook");
-              await handleAuthSuccess(data);
-            } catch (err) {
-              showAlert(err.message, "error");
-              btn.disabled = false;
-            }
-          },
-          { scope: "email,public_profile" }
-        );
+        if (typeof FB === "undefined") {
+          showAlert("Facebook SDK no cargó. Recarga la página.", "error");
+          btn.disabled = false;
+          return;
+        }
+        if (window.location.protocol !== "https:") {
+          showAlert(
+            "Facebook exige HTTPS. En local: ejecuta .\\scripts\\setup_local_https.ps1 y .\\scripts\\run_local_https.ps1, luego abre https://localhost:8444/wind/login/ (ver docs/LOGIN_SOCIAL_LOCAL_HTTPS.md).",
+            "error"
+          );
+          btn.disabled = false;
+          return;
+        }
+        FB.login(onFacebookLoginResponse, { scope: "email,public_profile" });
       });
     </script>
+    <script async defer crossorigin="anonymous" src="https://connect.facebook.net/es_ES/sdk.js"></script>
   </body>
 </html>

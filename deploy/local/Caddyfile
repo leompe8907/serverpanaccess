@@ -1,0 +1,10 @@
+# HTTPS local para probar login social (Facebook exige HTTPS).
+# Certificados: deploy/local/certs/ (mkcert). Ver docs/LOGIN_SOCIAL_LOCAL_HTTPS.md
+#
+# Uso (con Daphne en :8000):
+#   caddy run --config deploy/local/Caddyfile
+
+https://localhost:8444, https://127.0.0.1:8444 {
+	tls certs/localhost+2.pem certs/localhost+2-key.pem
+	reverse_proxy 127.0.0.1:8000
+}
