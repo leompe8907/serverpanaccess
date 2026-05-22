@@ -18,10 +18,10 @@ from rest_framework.response import Response
 from rest_framework import status
 
 from wind.throttles import SyncAdminThrottle
-from wind.models import ListOfProducts, ListOfSmartcards, SubscriberLoginInfo, ListOfSubscriber
+from wind.models import ListOfProducts, SubscriberLoginInfo
 from wind.functions.getSubscriber import compare_and_update_all_subscribers
 from wind.functions.getProducts import sync_products, compare_and_update_all_products, CallListOfProducts
-from wind.functions.getSmartcard import sync_smartcards, compare_and_update_all_smartcards, CallListSmartcards
+from wind.functions.getSmartcard import compare_and_update_all_smartcards
 from wind.functions.getSubscriberLoginInfo import sync_subscribers_login_info
 
 logger = logging.getLogger(__name__)
@@ -72,39 +72,6 @@ def _delete_extra_products(limit: int) -> dict:
     return {"remote": len(remote_ids), "local": len(local_ids), "extra_deleted": deleted}
 
 
-def _delete_extra_smartcards(limit: int) -> dict:
-    """Elimina smartcards locales que ya no existan en PanAccess."""
-    remote_sns = set()
-    offset = 0
-    remote_count = None
-
-    while True:
-        result = CallListSmartcards(session_id=None, offset=offset, limit=limit)
-        entries = result.get("smartcardEntries", []) or []
-        if remote_count is None:
-            remote_count = int(result.get("count") or 0)
-
-        if not entries:
-            break
-
-        for e in entries:
-            sn = e.get("sn") if isinstance(e, dict) else None
-            if sn:
-                remote_sns.add(sn)
-
-        offset += limit
-        if remote_count and len(remote_sns) >= remote_count:
-            break
-
-    local_sns = set(ListOfSmartcards.objects.values_list("sn", flat=True))
-    extra = local_sns - remote_sns
-    deleted = 0
-    if extra:
-        deleted = ListOfSmartcards.objects.filter(sn__in=extra).delete()[0]
-
-    return {"remote": len(remote_sns), "local": len(local_sns), "extra_deleted": deleted}
-
-
 def _cleanup_login_info() -> dict:
     """Elimina SubscriberLoginInfo sin suscriptor local (post sync de login)."""
     from wind.functions.getSubscriberLoginInfo import cleanup_login_info_orphans
@@ -127,9 +94,7 @@ def run_full_sync(limit: int = 100) -> dict:
     compare_and_update_all_products(session_id=None, limit=limit)
     result_products_delete = _delete_extra_products(limit=limit)
 
-    result_smartcards_new = sync_smartcards(session_id=None, limit=limit)
-    compare_and_update_all_smartcards(session_id=None, limit=limit)
-    result_smartcards_delete = _delete_extra_smartcards(limit=limit)
+    result_smartcards = compare_and_update_all_smartcards(session_id=None, limit=limit)
 
     result_login_info = sync_subscribers_login_info(session_id=None, limit=None)
     result_login_cleanup = _cleanup_login_info()
@@ -143,10 +108,7 @@ def run_full_sync(limit: int = 100) -> dict:
             "sync_result": result_products_new,
             "delete_extras": result_products_delete,
         },
-        "smartcards": {
-            "sync_result": result_smartcards_new,
-            "delete_extras": result_smartcards_delete,
-        },
+        "smartcards": result_smartcards,
         "subscriber_login_info": {
             "sync_result": result_login_info,
             "cleanup": result_login_cleanup,

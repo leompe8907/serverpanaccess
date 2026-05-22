@@ -1,10 +1,18 @@
 """
 Funciones para obtener y sincronizar información de login de suscriptores desde PanAccess.
+
+Full-sync (#11): prioriza API listada paginada; si no existe, fetch paralelo por código
+con upsert masivo en BD (evita N× update_or_create secuencial).
 """
+from __future__ import annotations
+
 import logging
+import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 from django.db import transaction
+
 from wind.models import SubscriberLoginInfo, ListOfSubscriber
-from wind.serializers import SubscriberLoginInfoSerializer
 from wind.utils.encryption import encrypt_value
 
 from wind.services import get_panaccess
@@ -12,189 +20,435 @@ from wind.exceptions import PanAccessException
 
 logger = logging.getLogger(__name__)
 
+_LIST_LOGIN_API_CANDIDATES = (
+    "getListOfSubscriberLoginInfo",
+    "getListOfSubscriberLoginInfos",
+    "getSubscriberLoginInfoList",
+)
+
+_ENTRY_KEYS = (
+    "loginInfoEntries",
+    "subscriberLoginInfoEntries",
+    "subscriberLoginEntries",
+    "entries",
+    "rows",
+)
+
+_resolved_list_login_api: str | None | bool = False  # False = sin resolver aún
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
 
 def DataBaseEmpty():
-    """
-    Verifica si la tabla SubscriberLoginInfo está vacía.
-    """
-    logger.info("Verificando si la base de datos de login info está vacía...")
+    """Verifica si la tabla SubscriberLoginInfo está vacía."""
     return not SubscriberLoginInfo.objects.exists()
 
 
-def store_login_info_in_chunks(login_info_list, chunk_size=100):
-    """
-    Almacena información de login en la base de datos en bloques para mejorar el rendimiento.
-    Los passwords se encriptan antes de guardarse.
-    """
-    total = len(login_info_list)
-    logger.info(f"Almacenando {total} registros de login info en chunks de {chunk_size}...")
-    
-    for i in range(0, total, chunk_size):
-        chunk = login_info_list[i:i + chunk_size]
-        try:
-            # Procesar cada item para encriptar passwords
-            processed_chunk = []
-            for item in chunk:
-                # Si viene 'password', encriptarlo y guardarlo como 'password_hash'
-                if 'password' in item and item['password']:
-                    item['password_hash'] = encrypt_value(item['password'])
-                    # Eliminar 'password' para evitar conflictos
-                    item.pop('password', None)
-                processed_chunk.append(item)
-            
-            registros = [SubscriberLoginInfo(**item) for item in processed_chunk]
-            SubscriberLoginInfo.objects.bulk_create(registros, ignore_conflicts=True)
-            logger.info(f"Chunk {i//chunk_size + 1}: insertados {len(registros)} registros de login info")
-        except Exception as e:
-            logger.error(f"Error insertando chunk desde {i} hasta {i+chunk_size}: {str(e)}")
+def _login_info_from_answer(answer: dict, subscriber_code: str | None = None) -> dict | None:
+    code = subscriber_code or answer.get("subscriberCode") or answer.get("code")
+    if not code or not str(code).strip():
+        return None
+    code = str(code).strip()
+    password_raw = answer.get("password")
+    return {
+        "subscriberCode": code,
+        "login1": answer.get("login1"),
+        "login2": answer.get("login2"),
+        "additionalLogins": answer.get("additionalLogins"),
+        "password_hash": encrypt_value(password_raw) if password_raw else None,
+        "licenses": answer.get("licenses"),
+    }
+
+
+def _extract_login_entries(answer) -> list:
+    if not isinstance(answer, dict):
+        return []
+    for key in _ENTRY_KEYS:
+        entries = answer.get(key)
+        if entries:
+            return entries
+    return []
 
 
 def CallGetSubscriberLoginInfo(session_id=None, subscriber_code=None):
     """
-    Llama a la API de Panaccess para obtener la información de login de un suscriptor.
-    
-    Args:
-        session_id: ID de sesión (opcional, se usa el singleton si no se proporciona)
-        subscriber_code: Código del suscriptor
-    
-    Returns:
-        Diccionario con la respuesta de PanAccess
+    Llama a getSubscriberLoginInfo para un único suscriptor (perfil, auth, pruebas).
     """
     if not subscriber_code:
         raise ValueError("subscriber_code es requerido")
-    
-    logger.info(f"Llamando API Panaccess GetSubscriberLoginInfo para suscriptor: {subscriber_code}")
-    
-    try:
-        # Usar el singleton de PanAccess
-        panaccess = get_panaccess()
-        
-        # Preparar parámetros
-        parameters = {
-            'subscriberCode': subscriber_code
-        }
-        
-        # Hacer la llamada usando el singleton
-        response = panaccess.call('getSubscriberLoginInfo', parameters)
 
-        if response.get('success'):
-            answer = response.get('answer', {})
-            # Agregar el subscriberCode a los datos
-            if isinstance(answer, dict):
-                answer['subscriberCode'] = subscriber_code
-            return answer
+    panaccess = get_panaccess()
+    response = panaccess.call(
+        "getSubscriberLoginInfo",
+        {"subscriberCode": subscriber_code},
+    )
+
+    if response.get("success"):
+        answer = response.get("answer", {})
+        if isinstance(answer, dict):
+            answer["subscriberCode"] = subscriber_code
+        return answer
+
+    error_message = response.get("errorMessage", "Error desconocido al obtener login info")
+    raise PanAccessException(error_message)
+
+
+def _resolve_list_login_api() -> str | None:
+    """Detecta una API listada de login info (una vez por proceso)."""
+    global _resolved_list_login_api
+    if _resolved_list_login_api is not False:
+        return _resolved_list_login_api  # type: ignore[return-value]
+
+    if not _env_bool("PANACCESS_LOGIN_INFO_TRY_LIST_API", True):
+        _resolved_list_login_api = None
+        return None
+
+    panaccess = get_panaccess()
+    for api_name in _LIST_LOGIN_API_CANDIDATES:
+        try:
+            response = panaccess.call(api_name, {"offset": 0, "limit": 1})
+            if response.get("success"):
+                logger.info("API listada de login info: %s", api_name)
+                _resolved_list_login_api = api_name
+                return api_name
+        except PanAccessException as exc:
+            logger.debug("API %s no disponible: %s", api_name, exc)
+        except Exception as exc:
+            logger.debug("Probe %s falló: %s", api_name, exc)
+
+    logger.info(
+        "Sin API listada de login info; se usará fetch paralelo por subscriberCode"
+    )
+    _resolved_list_login_api = None
+    return None
+
+
+def CallListSubscriberLoginInfo(session_id=None, offset=0, limit=100):
+    """Lista paginada de login info (si PanAccess expone el método)."""
+    api_name = _resolve_list_login_api()
+    if not api_name:
+        raise PanAccessException(
+            "No hay API listada de login info configurada en PanAccess"
+        )
+
+    panaccess = get_panaccess()
+    parameters = {
+        "offset": offset,
+        "limit": limit,
+        "orderDir": "DESC",
+        "orderBy": "subscriberCode",
+    }
+    response = panaccess.call(api_name, parameters)
+
+    if response.get("success"):
+        return response.get("answer", {})
+
+    error_message = response.get(
+        "errorMessage",
+        "Error desconocido al listar login info",
+    )
+    raise PanAccessException(error_message)
+
+
+def bulk_upsert_login_records(records: list[dict], *, chunk_size: int = 200) -> dict:
+    """
+    Inserta o actualiza login info en bloques (por subscriberCode).
+    """
+    by_code: dict[str, dict] = {}
+    for raw in records:
+        if not raw or not raw.get("subscriberCode"):
+            continue
+        code = str(raw["subscriberCode"]).strip()
+        if code:
+            by_code[code] = raw
+
+    if not by_code:
+        return {"created": 0, "updated": 0, "total": 0}
+
+    codes = list(by_code.keys())
+    existing = {
+        obj.subscriberCode: obj
+        for obj in SubscriberLoginInfo.objects.filter(subscriberCode__in=codes)
+        if obj.subscriberCode
+    }
+
+    update_fields = [
+        "login1",
+        "login2",
+        "additionalLogins",
+        "password_hash",
+        "licenses",
+    ]
+    to_create: list[SubscriberLoginInfo] = []
+    to_update: list[SubscriberLoginInfo] = []
+
+    for code, data in by_code.items():
+        if code in existing:
+            obj = existing[code]
+            obj.login1 = data.get("login1")
+            obj.login2 = data.get("login2")
+            obj.additionalLogins = data.get("additionalLogins")
+            obj.password_hash = data.get("password_hash")
+            obj.licenses = data.get("licenses")
+            to_update.append(obj)
         else:
-            error_message = response.get('errorMessage', 'Error desconocido al obtener login info')
-            logger.error(f"Error en respuesta de PanAccess: {error_message}")
-            raise PanAccessException(error_message)
+            to_create.append(SubscriberLoginInfo(**data))
 
-    except PanAccessException:
-        raise
-    except Exception as e:
-        logger.error(f"Fallo en la llamada a GetSubscriberLoginInfo: {str(e)}", exc_info=True)
-        raise
+    created = 0
+    updated = 0
+
+    with transaction.atomic():
+        if to_create:
+            for i in range(0, len(to_create), chunk_size):
+                batch = to_create[i : i + chunk_size]
+                SubscriberLoginInfo.objects.bulk_create(
+                    batch,
+                    ignore_conflicts=True,
+                )
+            created = len(to_create)
+
+        if to_update:
+            for i in range(0, len(to_update), chunk_size):
+                batch = to_update[i : i + chunk_size]
+                SubscriberLoginInfo.objects.bulk_update(
+                    batch,
+                    update_fields,
+                )
+            updated = len(to_update)
+
+    return {
+        "created": created,
+        "updated": updated,
+        "total": len(by_code),
+    }
+
+
+def fetch_login_info_via_list_api(session_id=None, limit: int = 200) -> dict:
+    """
+    Descarga todo el login info con una API listada (pocas llamadas HTTP).
+    """
+    api_name = _resolve_list_login_api()
+    if not api_name:
+        return {"mode": "list_api", "skipped": True, "reason": "no_list_api"}
+
+    limit = max(1, min(limit, 1000))
+    offset = 0
+    remote_count = None
+    all_records: list[dict] = []
+
+    while True:
+        answer = CallListSubscriberLoginInfo(session_id, offset=offset, limit=limit)
+        if remote_count is None:
+            remote_count = int(answer.get("count") or 0)
+
+        entries = _extract_login_entries(answer)
+        if not entries:
+            break
+
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            record = _login_info_from_answer(entry)
+            if record:
+                all_records.append(record)
+
+        offset += limit
+        if remote_count and len(all_records) >= remote_count:
+            break
+        if len(entries) < limit:
+            break
+
+    upsert = bulk_upsert_login_records(all_records)
+    logger.info(
+        "Login info vía %s: %s registros remotos, creados=%s actualizados=%s",
+        api_name,
+        len(all_records),
+        upsert["created"],
+        upsert["updated"],
+    )
+    return {
+        "mode": "list_api",
+        "api": api_name,
+        "remote_count": len(all_records),
+        "remote_api_count": remote_count,
+        **upsert,
+    }
+
+
+def _fetch_login_info_one_code(subscriber_code: str) -> dict | None:
+    try:
+        answer = CallGetSubscriberLoginInfo(None, subscriber_code)
+        return _login_info_from_answer(answer, subscriber_code)
+    except PanAccessException as exc:
+        logger.warning("Login info falló para %s: %s", subscriber_code, exc)
+        return None
+    except Exception as exc:
+        logger.error("Error inesperado login info %s: %s", subscriber_code, exc)
+        return None
+
+
+def fetch_login_info_for_codes(codes: list[str]) -> dict:
+    """Fetch paralelo + upsert solo para los códigos indicados (p. ej. altas nuevas)."""
+    codes = [str(c).strip() for c in codes if c and str(c).strip()]
+    if not codes:
+        return {"mode": "parallel_codes", "total": 0, "success": 0, "errors": 0}
+
+    workers = max(1, min(_env_int("PANACCESS_LOGIN_INFO_CONCURRENCY", 10), 32))
+    records: list[dict] = []
+    errors = 0
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {executor.submit(_fetch_login_info_one_code, c): c for c in codes}
+        for future in as_completed(futures):
+            record = future.result()
+            if record:
+                records.append(record)
+            else:
+                errors += 1
+
+    upsert = bulk_upsert_login_records(records)
+    return {
+        "mode": "parallel_codes",
+        "total": len(codes),
+        "success": upsert["total"],
+        "errors": errors,
+        **upsert,
+    }
+
+
+def fetch_login_info_via_parallel(
+    session_id=None,
+    limit: int | None = None,
+    *,
+    page_limit: int = 200,
+) -> dict:
+    """
+    Obtiene login info en paralelo (una llamada por código, pero concurrente + bulk DB).
+    """
+    del session_id  # singleton compartido thread-safe
+
+    qs = ListOfSubscriber.objects.exclude(code__isnull=True).exclude(code="")
+    if limit:
+        qs = qs[:limit]
+
+    codes = list(qs.values_list("code", flat=True))
+    total = len(codes)
+    if not total:
+        return {
+            "mode": "parallel",
+            "total": 0,
+            "success": 0,
+            "errors": 0,
+            "skipped": 0,
+        }
+
+    workers = max(1, min(_env_int("PANACCESS_LOGIN_INFO_CONCURRENCY", 10), 32))
+    logger.info(
+        "Login info paralelo: %s suscriptores, %s workers",
+        total,
+        workers,
+    )
+
+    records: list[dict] = []
+    errors = 0
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {
+            executor.submit(_fetch_login_info_one_code, code): code
+            for code in codes
+        }
+        done = 0
+        for future in as_completed(futures):
+            done += 1
+            record = future.result()
+            if record:
+                records.append(record)
+            else:
+                errors += 1
+            if done % 200 == 0:
+                logger.info("Login info paralelo: %s/%s", done, total)
+
+    chunk_size = _env_int("PANACCESS_LOGIN_INFO_DB_CHUNK", 200)
+    upsert = bulk_upsert_login_records(records, chunk_size=chunk_size)
+
+    return {
+        "mode": "parallel",
+        "total": total,
+        "success": upsert["total"],
+        "errors": errors,
+        "skipped": 0,
+        "workers": workers,
+        "page_limit": page_limit,
+        **upsert,
+    }
+
+
+def store_login_info_in_chunks(login_info_list, chunk_size=100):
+    """Compatibilidad: delega en bulk_upsert_login_records."""
+    result = bulk_upsert_login_records(login_info_list, chunk_size=chunk_size)
+    return result.get("created", 0) + result.get("updated", 0)
 
 
 def fetch_login_info_for_subscriber(session_id=None, subscriber_code=None):
     """
-    Obtiene la información de login de un suscriptor específico y la almacena.
-    
-    Args:
-        session_id: ID de sesión (opcional, se usa el singleton si no se proporciona)
-        subscriber_code: Código del suscriptor
-    
-    Returns:
-        True si se obtuvo y almacenó correctamente, False en caso contrario
+    Obtiene la información de login de un suscriptor y la persiste (un registro).
     """
-    try:
-        result = CallGetSubscriberLoginInfo(session_id, subscriber_code)
-        
-        if not result:
-            logger.warning(f"No se obtuvo información de login para suscriptor {subscriber_code}")
-            return False
-        
-        # Preparar datos para el modelo - ENCRIPTAR PASSWORD INMEDIATAMENTE
-        password_raw = result.get('password')
-        password_encrypted = encrypt_value(password_raw) if password_raw else None
-        
-        login_data = {
-            'subscriberCode': subscriber_code,
-            'login1': result.get('login1'),
-            'login2': result.get('login2'),
-            'additionalLogins': result.get('additionalLogins'),
-            'password_hash': password_encrypted,  # Password ya encriptado
-            'licenses': result.get('licenses'),
-        }
-        
-        # Usar update_or_create para actualizar si existe o crear si no
-        SubscriberLoginInfo.objects.update_or_create(
-            subscriberCode=subscriber_code,
-            defaults=login_data
-        )
-        
-        logger.debug(f"Login info actualizada para suscriptor {subscriber_code} (password encriptado)")
-        return True
-        
-    except PanAccessException as e:
-        logger.error(f"Error de PanAccess obteniendo login info para {subscriber_code}: {str(e)}")
+    record = _fetch_login_info_one_code(subscriber_code)
+    if not record:
         return False
-    except Exception as e:
-        logger.error(f"Error inesperado obteniendo login info para {subscriber_code}: {str(e)}", exc_info=True)
-        return False
+    bulk_upsert_login_records([record])
+    return True
 
 
 def fetch_all_subscribers_login_info(session_id=None, limit=None):
     """
-    Obtiene la información de login de todos los suscriptores en la base de datos.
-    
-    Args:
-        session_id: ID de sesión (opcional, se usa el singleton si no se proporciona)
-        limit: Cantidad máxima de suscriptores a procesar (None = todos)
-    
-    Returns:
-        Diccionario con estadísticas del proceso
+    Sincroniza login info de todos los suscriptores locales.
+
+    1. Intenta API listada paginada (1..N páginas).
+    2. Si no existe, fetch paralelo por código + upsert masivo.
     """
-    logger.info("Iniciando obtención de login info para todos los suscriptores...")
-    
-    # Obtener todos los suscriptores con código
-    subscribers = ListOfSubscriber.objects.exclude(code__isnull=True).exclude(code='')
-    if limit:
-        subscribers = subscribers[:limit]
-    
-    total_subscribers = subscribers.count()
-    logger.info(f"Procesando login info para {total_subscribers} suscriptores...")
-    
-    success_count = 0
-    error_count = 0
-    skipped_count = 0
-    
-    for subscriber in subscribers:
-        subscriber_code = subscriber.code
-        if not subscriber_code:
-            skipped_count += 1
-            continue
-        
+    page_limit = _env_int("PANACCESS_LOGIN_INFO_PAGE_LIMIT", 200)
+
+    if _resolve_list_login_api():
         try:
-            if fetch_login_info_for_subscriber(session_id, subscriber_code):
-                success_count += 1
-            else:
-                error_count += 1
-        except Exception as e:
-            logger.error(f"Error procesando suscriptor {subscriber_code}: {str(e)}")
-            error_count += 1
-        
-        # Log de progreso cada 100 suscriptores
-        processed = success_count + error_count + skipped_count
-        if processed % 100 == 0:
-            logger.info(f"Progreso: {processed}/{total_subscribers} suscriptores procesados...")
-    
-    logger.info(f"Proceso completado: {success_count} exitosos, {error_count} errores, {skipped_count} omitidos")
-    
+            result = fetch_login_info_via_list_api(session_id, limit=page_limit)
+            if not result.get("skipped"):
+                return {
+                    "total": result.get("remote_count", 0),
+                    "success": result.get("total", 0),
+                    "errors": 0,
+                    "skipped": 0,
+                    **result,
+                }
+        except PanAccessException as exc:
+            logger.warning(
+                "List API de login info falló, usando modo paralelo: %s",
+                exc,
+            )
+
+    parallel = fetch_login_info_via_parallel(
+        session_id,
+        limit=limit,
+        page_limit=page_limit,
+    )
     return {
-        'total': total_subscribers,
-        'success': success_count,
-        'errors': error_count,
-        'skipped': skipped_count
+        "total": parallel.get("total", 0),
+        "success": parallel.get("success", 0),
+        "errors": parallel.get("errors", 0),
+        "skipped": parallel.get("skipped", 0),
+        **parallel,
     }
 
 
@@ -222,29 +476,13 @@ def cleanup_login_info_orphans():
 
 
 def sync_subscribers_login_info(session_id=None, limit=None):
-    """
-    Sincroniza la información de login de todos los suscriptores.
-    
-    Args:
-        session_id: ID de sesión (opcional, se usa el singleton si no se proporciona)
-        limit: Cantidad máxima de suscriptores a procesar (None = todos)
-    
-    Returns:
-        Resultado de la sincronización
-    """
+    """Sincroniza la información de login (usado en full_sync nocturno)."""
     logger.info("Iniciando sincronización de login info de suscriptores")
-    
-    try:
-        result = fetch_all_subscribers_login_info(session_id, limit)
-        logger.info("✅ Sincronización de login info completada")
-        return result
-    except PanAccessException as e:
-        logger.error(f"Error de PanAccess durante sincronización: {str(e)}")
-        raise
-    except (ConnectionError, ValueError) as e:
-        logger.error(f"Error específico durante sincronización: {str(e)}")
-        raise
-    except Exception as e:
-        logger.error(f"Error inesperado: {str(e)}", exc_info=True)
-        raise
-
+    result = fetch_all_subscribers_login_info(session_id, limit)
+    logger.info(
+        "Sincronización login info completada: modo=%s éxitos=%s errores=%s",
+        result.get("mode"),
+        result.get("success"),
+        result.get("errors"),
+    )
+    return result

@@ -391,7 +391,9 @@ CELERY_TIMEZONE = TIME_ZONE
 # Configurar cola por defecto para tareas específicas
 CELERY_TASK_ROUTES = {
     'wind.tasks.sync_subscribers_task': {'queue': 'sync_subscribers'},
+    'wind.tasks.compare_and_update_subscribers_task': {'queue': 'sync_subscribers'},
     'wind.tasks.sync_smartcards_task': {'queue': 'sync_subscribers'},
+    'wind.tasks.compare_and_update_smartcards_task': {'queue': 'sync_subscribers'},
     'wind.tasks.full_sync_task': {'queue': 'sync_subscribers'},
 }
 
@@ -422,8 +424,9 @@ _FULL_SYNC_SOFT_LIMIT = max(540, _as_int(os.getenv("CELERY_FULL_SYNC_SOFT_TIME_L
 _FULL_SYNC_ENABLED = os.getenv("CELERY_FULL_SYNC_ENABLED", "true").lower() in ("true", "1", "yes")
 
 CELERY_BEAT_SCHEDULE = {
-    "sync-subscribers": {
-        "task": "wind.tasks.sync_subscribers_task",
+    # Tras carga manual en deploy (sync-subscribers HTTP); mantenimiento cada N min
+    "compare-and-update-subscribers": {
+        "task": "wind.tasks.compare_and_update_subscribers_task",
         "schedule": _SCHEDULE,
         "options": {
             "queue": _SYNC_QUEUE,
@@ -432,8 +435,9 @@ CELERY_BEAT_SCHEDULE = {
         },
         "args": (_SYNC_LIMIT,),
     },
-    "sync-smartcards": {
-        "task": "wind.tasks.sync_smartcards_task",
+    # Tras sync-smartcards HTTP en deploy; reconciliación (crear / actualizar / borrar)
+    "compare-and-update-smartcards": {
+        "task": "wind.tasks.compare_and_update_smartcards_task",
         "schedule": _SMARTCARD_SCHEDULE,
         "options": {
             "queue": _SYNC_QUEUE,

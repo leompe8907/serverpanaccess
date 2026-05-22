@@ -36,7 +36,7 @@ Checklist ordenada de **mayor a menor** importancia. Resolver **un ítem a la ve
 | 8 | [x] | **P1** | Mantener **`FULL_SYNC_HTTP_ENABLED=false`** en prod | Correctivo solo por Celery | **[FULL_SYNC_PRODUCCION.md](./FULL_SYNC_PRODUCCION.md)** | `check_deploy --strict`; POST → 403 |
 | 9 | [x] | **P1** | **`PANACCESS_SESSION_USE_REDIS=true`** con varios workers Gunicorn | Evita re-login PanAccess por worker | **[PANACCESS_SESION_REDIS.md](./PANACCESS_SESION_REDIS.md)** | `check_redis` → panaccess_session_store ok |
 | 10 | [ ] | **P1** | No usar **`/wind/sync-*`** en horario pico; solo emergencias staff | Sync HTTP es **síncrono** en worker web (hasta 600 s) | Operación | Documentar procedimiento interno |
-| 11 | [ ] | **P1** | Optimizar **login info en full sync** (no 1 API por suscriptor) | Correctivo nocturno puede tardar horas | `getSubscriberLoginInfo.py`, `full_sync.py` | Medir duración full sync antes/después |
+| 11 | [x] | **P1** | Optimizar **login info en full sync** (no 1 API por suscriptor) | Correctivo nocturno puede tardar horas | **[LOGIN_INFO_SYNC.md](./LOGIN_INFO_SYNC.md)** | `sync_subscribers_login_info`; log `list_api` o `parallel` |
 | 12 | [ ] | **P1** | Perfil: API PanAccess **por código**, no listar todo el catálogo | `_sync_subscriber_row_from_panaccess` es O(n) | `subscriber_catalog.py` | `GET /api/v1/profile/me/` con 1 llamada PanAccess máx. |
 | 13 | [ ] | **P1** | Smartcards en perfil: filtrar por abonado, no paginar todo el mundo | Hasta 15×100 entradas globales | `subscriber_catalog.py` | `profile/products` rápido con BD ya sincronizada |
 | 14 | [ ] | **P1** | Relajar **`SocialConfig.validate()`** (solo proveedores usados) | Arranque exige Google **y** Facebook hoy | `appConfig.py` | Boot sin Facebook si solo usas Google |
@@ -82,6 +82,7 @@ Checklist ordenada de **mayor a menor** importancia. Resolver **un ítem a la ve
 | 7 | 2026-05-22 | — | `RegisterThrottle`, `CREATE_SUBSCRIBER_PUBLIC_ENABLED`, nginx limit_req, doc registro. |
 | 8 | 2026-05-22 | — | `check_deploy --strict` valida full-sync HTTP; doc `FULL_SYNC_PRODUCCION.md`. |
 | 9 | 2026-05-22 | — | `.env` explícito, `check_deploy`/`check_redis` validan sesión Redis; doc. |
+| 11 | 2026-05-22 | — | Login info: API listada + paralelo + bulk upsert; `LOGIN_INFO_SYNC.md`. |
 
 ---
 
@@ -95,6 +96,8 @@ Checklist ordenada de **mayor a menor** importancia. Resolver **un ítem a la ve
 - [REGISTRO_PUBLICO_SEGURIDAD.md](./REGISTRO_PUBLICO_SEGURIDAD.md) — ítem **#7** (create-subscriber)
 - [FULL_SYNC_PRODUCCION.md](./FULL_SYNC_PRODUCCION.md) — ítem **#8** (full-sync solo Celery)
 - [PANACCESS_SESION_REDIS.md](./PANACCESS_SESION_REDIS.md) — ítem **#9** (sesión PanAccess multi-worker)
+- [SYNC_FLUJO_TAREAS.md](./SYNC_FLUJO_TAREAS.md) — flujo deploy / Beat / full-sync
+- [LOGIN_INFO_SYNC.md](./LOGIN_INFO_SYNC.md) — ítem **#11** (login info en full-sync)
 - [DESPLIEGUE.md](./DESPLIEGUE.md) — comandos worker, beat, variables `.env`
 - [ANALISIS_ESCALABILIDAD.md](./ANALISIS_ESCALABILIDAD.md) — contexto de carga (revisar tras ítem 21)
 

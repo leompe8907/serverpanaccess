@@ -113,10 +113,10 @@ Terminal 3 — encolar una tarea de prueba:
 ```bash
 cd /ruta/al/win-backend
 source env/bin/activate
-python manage.py shell -c "from wind.tasks import sync_subscribers_task; r=sync_subscribers_task.delay(); print('task_id', r.id)"
+python manage.py shell -c "from wind.tasks import compare_and_update_subscribers_task; r=compare_and_update_subscribers_task.delay(); print('task_id', r.id)"
 ```
 
-En el worker debe aparecer `sync_subscribers_task` ejecutándose o completada.
+En el worker debe aparecer `compare_and_update_subscribers_task` ejecutándose o completada.
 
 Inspección rápida:
 
@@ -158,8 +158,8 @@ journalctl -u win-celery-beat -f
 
 | Tarea | Frecuencia |
 |-------|------------|
-| `sync_subscribers_task` | Cada `CELERY_SYNC_MINUTES` (10) |
-| `sync_smartcards_task` | Cada `CELERY_SMARTCARD_SYNC_MINUTES` (10) |
+| `compare_and_update_subscribers_task` | Cada `CELERY_SYNC_MINUTES` (10) |
+| `compare_and_update_smartcards_task` | Cada `CELERY_SMARTCARD_SYNC_MINUTES` (10) |
 | `full_sync_task` | Diario `CELERY_FULL_SYNC_HOUR:MINUTE` (00:00) |
 
 Mientras `full_sync_task` corre, las otras dos se **omiten** (flag en Redis).

@@ -22,7 +22,7 @@ FULL_SYNC_HTTP_ENABLED=false
 1. **Automático (prod)** — Celery Beat → worker cola `sync_subscribers` → `run_full_sync()`.
 2. **HTTP (solo emergencia)** — Con `FULL_SYNC_HTTP_ENABLED=true`, staff hace `POST /wind/full-sync/` y recibe **202** + `task_id` (encola la misma tarea; no bloquea Gunicorn).
 
-Mientras corre el full sync, las tareas incrementales (`sync_subscribers_task`, etc.) devuelven `skipped` para no interferir.
+Mientras corre el full sync, las tareas periódicas (`compare_and_update_subscribers_task`, `compare_and_update_smartcards_task`) devuelven `skipped` para no interferir.
 
 ## Capas de protección
 

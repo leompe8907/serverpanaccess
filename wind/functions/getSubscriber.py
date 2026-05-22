@@ -476,19 +476,18 @@ def fetch_all_subscribers(session_id=None, limit=100):
     logger.info(f"Descargados {len(all_data)} suscriptores extendidos")
     result = store_all_subscribers_in_chunks(all_data)
     
-    if fetch_login_info_for_subscriber:
-        login_info_count = 0
-        for item in all_data:
-            subscriber_code = item.get('code')
-            if subscriber_code:
-                try:
-                    if fetch_login_info_for_subscriber(session_id, subscriber_code):
-                        login_info_count += 1
-                except Exception:
-                    pass
-        if login_info_count > 0:
-            logger.info(f"Login info obtenida: {login_info_count} suscriptores")
-    
+    if fetch_login_info_for_subscriber and all_data:
+        from wind.functions.getSubscriberLoginInfo import fetch_login_info_for_codes
+
+        codes = [item.get("code") for item in all_data if item.get("code")]
+        li_result = fetch_login_info_for_codes(codes)
+        if li_result.get("success"):
+            logger.info(
+                "Login info (paralelo) tras carga completa: %s/%s",
+                li_result.get("success"),
+                li_result.get("total"),
+            )
+
     return result
 
 def store_all_subscribers_in_chunks(data_batch, chunk_size=100):
@@ -707,19 +706,18 @@ def download_subscribers_since_last(session_id=None, limit=100):
     logger.info(f"Nuevos suscriptores descargados: {len(new_data)}")
     result = store_all_subscribers_in_chunks(new_data)
     
-    if fetch_login_info_for_subscriber:
-        login_info_count = 0
-        for item in new_data:
-            subscriber_code = item.get('code')
-            if subscriber_code:
-                try:
-                    if fetch_login_info_for_subscriber(session_id, subscriber_code):
-                        login_info_count += 1
-                except Exception:
-                    pass
-        if login_info_count > 0:
-            logger.info(f"Login info obtenida: {login_info_count} suscriptores")
-    
+    if fetch_login_info_for_subscriber and new_data:
+        from wind.functions.getSubscriberLoginInfo import fetch_login_info_for_codes
+
+        codes = [item.get("code") for item in new_data if item.get("code")]
+        li_result = fetch_login_info_for_codes(codes)
+        if li_result.get("success"):
+            logger.info(
+                "Login info (paralelo) tras altas nuevas: %s/%s",
+                li_result.get("success"),
+                li_result.get("total"),
+            )
+
     return result
 
 def compare_and_update_all_subscribers(session_id=None, limit=100):

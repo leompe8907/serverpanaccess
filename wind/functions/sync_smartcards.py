@@ -31,7 +31,7 @@ def sync_smartcards_view(request):
     
     La función sync_smartcards() valida automáticamente la base de datos:
     - Si está vacía, realiza descarga completa
-    - Si tiene datos, realiza descarga incremental + actualización
+    - Si tiene datos, reconciliación completa (crear / actualizar / eliminar)
     
     Parámetros opcionales (GET o POST):
     - limit: Cantidad de registros por página (default: 100, máximo: 1000)

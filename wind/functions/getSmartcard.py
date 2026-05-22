@@ -124,82 +124,131 @@ def download_smartcards_since_last(session_id=None, limit=100):
     logger.info(f"Nuevos smartcards descargados: {len(new_data)}")
     return store_all_smartcards_in_chunks(new_data)
 
+def _smartcard_model_fields():
+    return {f.name for f in ListOfSmartcards._meta.get_fields()}
+
+
+def _update_smartcard_from_remote(local_obj, remote: dict) -> list[str]:
+    """Aplica campos remotos al modelo local; devuelve nombres de campos cambiados."""
+    changed_fields = []
+    for key, val in remote.items():
+        if not hasattr(local_obj, key):
+            continue
+        local_val = getattr(local_obj, key)
+        if isinstance(local_val, list) and isinstance(val, list):
+            if local_val != val:
+                setattr(local_obj, key, val)
+                changed_fields.append(key)
+        elif str(local_val) != str(val):
+            setattr(local_obj, key, val)
+            changed_fields.append(key)
+    return changed_fields
+
+
 def compare_and_update_all_smartcards(session_id=None, limit=100):
     """
-    Compara todos los smartcards de Panaccess con los de la base local y actualiza si hay diferencias.
-    
-    Args:
-        session_id: ID de sesión (opcional, se usa el singleton si no se proporciona)
-        limit: Cantidad máxima de registros por página
+    Reconciliación de smartcards contra PanAccess (mismo criterio que suscriptores).
+
+    1. Recorre todo el catálogo remoto (paginado).
+    2. Actualiza existentes, crea faltantes en local.
+    3. Elimina locales cuyo SN ya no está en PanAccess.
+
+    Returns:
+        dict con created, updated, deleted, remote_count, etc.
     """
-    logger.info("Actualizando smartcards existentes")
+    logger.info("Reconciliando smartcards desde PanAccess")
+    model_fields = _smartcard_model_fields()
     local_data = {
-        obj.sn: obj for obj in ListOfSmartcards.objects.all() if obj.sn
+        obj.sn: obj
+        for obj in ListOfSmartcards.objects.exclude(sn__isnull=True).exclude(sn="")
+        if obj.sn
     }
+    local_count_before = len(local_data)
+    remote_sns = set()
+    new_rows = []
     offset = 0
+    remote_total_count = None
     total_updated = 0
-    
+
     while True:
         response = CallListSmartcards(session_id, offset, limit)
-        remote_list = response.get("smartcardEntries", [])
+        if remote_total_count is None:
+            remote_total_count = int(response.get("count") or 0)
+
+        remote_list = response.get("smartcardEntries", []) or []
         if not remote_list:
             break
-        
+
         for remote in remote_list:
-            if not isinstance(remote, dict) or 'sn' not in remote:
+            if not isinstance(remote, dict):
                 continue
-            
-            sn = remote.get('sn')
-            if not sn or sn not in local_data:
+            sn = remote.get("sn")
+            if not sn or not str(sn).strip():
                 continue
-            
-            local_obj = local_data[sn]
-            changed_fields = []
-            
-            for key, val in remote.items():
-                if hasattr(local_obj, key):
-                    local_val = getattr(local_obj, key)
-                    if isinstance(local_val, list) and isinstance(val, list):
-                        if local_val != val:
-                            setattr(local_obj, key, val)
-                            changed_fields.append(key)
-                    elif str(local_val) != str(val):
-                        setattr(local_obj, key, val)
-                        changed_fields.append(key)
-            
-            if changed_fields:
-                try:
-                    local_obj.save(update_fields=changed_fields)
-                    total_updated += 1
-                except Exception as e:
-                    logger.error(f"Error actualizando SN {sn}: {str(e)}")
-        
+            sn = str(sn).strip()
+            remote_sns.add(sn)
+
+            if sn in local_data:
+                changed_fields = _update_smartcard_from_remote(local_data[sn], remote)
+                if changed_fields:
+                    try:
+                        local_data[sn].save(update_fields=changed_fields)
+                        total_updated += 1
+                    except Exception as e:
+                        logger.error("Error actualizando smartcard SN %s: %s", sn, e)
+            else:
+                filtered = {k: v for k, v in remote.items() if k in model_fields}
+                if filtered.get("sn"):
+                    new_rows.append(filtered)
+
         offset += limit
-    
-    logger.info(f"Actualizados {total_updated} smartcards")
+        if remote_total_count and len(remote_sns) >= remote_total_count:
+            break
+
+    total_created = 0
+    if new_rows:
+        before = ListOfSmartcards.objects.count()
+        store_all_smartcards_in_chunks(new_rows)
+        total_created = max(0, ListOfSmartcards.objects.count() - before)
+
+    extra_sns = set(local_data.keys()) - remote_sns
+    deleted = 0
+    if extra_sns:
+        deleted = ListOfSmartcards.objects.filter(sn__in=extra_sns).delete()[0]
+
+    logger.info(
+        "Reconciliación smartcards — remoto=%s, local antes=%s, actualizados=%s, "
+        "creados=%s, eliminados=%s",
+        len(remote_sns),
+        local_count_before,
+        total_updated,
+        total_created,
+        deleted,
+    )
+
+    return {
+        "updated": total_updated,
+        "created": total_created,
+        "deleted": deleted,
+        "codes_to_delete_count": len(extra_sns),
+        "remote_count": len(remote_sns),
+        "remote_api_count": remote_total_count,
+        "local_count_before": local_count_before,
+    }
 
 def sync_smartcards(session_id=None, limit=100):
     """
-    Ejecuta el proceso de sincronización de smartcards:
-    - Si la base está vacía, descarga todos los registros.
-    - Si no, descarga solo los nuevos desde el último sn.
-    
-    Args:
-        session_id: ID de sesión (opcional, se usa el singleton si no se proporciona)
-        limit: Cantidad máxima de registros por página
-    
-    Returns:
-        Resultado de la sincronización
+    Carga inicial o reconciliación de smartcards.
+
+    - BD vacía (deploy): descarga completa.
+    - BD con datos: reconciliación (crear / actualizar / eliminar), sin incremental por SN.
     """
     logger.info("Sincronizando smartcards")
 
     try:
         if DataBaseEmpty():
             return fetch_all_smartcards(session_id, limit)
-        else:
-            new_result = download_smartcards_since_last(session_id, limit)
-            compare_and_update_all_smartcards(session_id, limit)
-            return new_result
+        return compare_and_update_all_smartcards(session_id, limit)
 
     except PanAccessException as e:
         logger.error(f"Error PanAccess: {str(e)}")

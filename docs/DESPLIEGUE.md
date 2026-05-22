@@ -94,13 +94,16 @@ En Windows el pool `solo` se aplica automáticamente desde settings.
 python -m celery -A serverpanaccess beat -l info
 ```
 
-Tareas programadas por defecto:
+Tareas programadas por defecto (detalle en [SYNC_FLUJO_TAREAS.md](./SYNC_FLUJO_TAREAS.md)):
 
 | Tarea | Horario |
 |-------|---------|
-| `sync_subscribers_task` | Cada `CELERY_SYNC_MINUTES` |
-| `sync_smartcards_task` | Cada `CELERY_SMARTCARD_SYNC_MINUTES` |
+| `compare_and_update_subscribers_task` | Cada `CELERY_SYNC_MINUTES` |
+| `compare_and_update_smartcards_task` | Cada `CELERY_SMARTCARD_SYNC_MINUTES` |
 | `full_sync_task` | `CELERY_FULL_SYNC_HOUR:MINUTE` (default 00:00) |
+
+**Deploy (una vez, manual):** antes de confiar en Beat, ejecutar por HTTP (staff)  
+`POST /wind/sync-subscribers/`, `POST /wind/sync-products/`, `POST /wind/sync-smartcards/`.
 
 ---
 
