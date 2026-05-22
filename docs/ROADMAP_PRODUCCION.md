@@ -33,8 +33,8 @@ Checklist ordenada de **mayor a menor** importancia. Resolver **un ítem a la ve
 | 5 | [x] | **P0** | **TLS** (nginx) + no exponer sync/admin a internet abierto | Sync pesado; superficie de ataque | **[NGINX_TLS_Y_RESTRICCION_UBUNTU.md](./NGINX_TLS_Y_RESTRICCION_UBUNTU.md)** + `deploy/nginx/` | HTTPS; sync 403 desde internet |
 | 6 | [x] | **P0** | Proteger endpoint sesión PanAccess (ya no en `/wind/login/`) | Sesión de sistema no se filtra al público | `ops/panaccess-session/`, `PANACCESS_OPS_HTTP_ENABLED` | Anónimo → 401/403; portal `/wind/login/` HTML intacto |
 | 7 | [x] | **P0** | Endurecer **`create-subscriber/`** (throttle + flag; sin JWT en registro) | Abuso = muchas llamadas PanAccess | **[REGISTRO_PUBLICO_SEGURIDAD.md](./REGISTRO_PUBLICO_SEGURIDAD.md)** | 429 tras límite; `CREATE_SUBSCRIBER_PUBLIC_ENABLED=false` → 403 |
-| 8 | [ ] | **P1** | Mantener **`FULL_SYNC_HTTP_ENABLED=false`** en prod | Correctivo solo por Celery | `.env` | POST `/wind/full-sync/` → 403 |
-| 9 | [ ] | **P1** | **`PANACCESS_SESSION_USE_REDIS=true`** con varios workers Gunicorn | Evita re-login PanAccess por worker | `.env` | 2+ workers; una sesión en Redis; APIs OK |
+| 8 | [x] | **P1** | Mantener **`FULL_SYNC_HTTP_ENABLED=false`** en prod | Correctivo solo por Celery | **[FULL_SYNC_PRODUCCION.md](./FULL_SYNC_PRODUCCION.md)** | `check_deploy --strict`; POST → 403 |
+| 9 | [x] | **P1** | **`PANACCESS_SESSION_USE_REDIS=true`** con varios workers Gunicorn | Evita re-login PanAccess por worker | **[PANACCESS_SESION_REDIS.md](./PANACCESS_SESION_REDIS.md)** | `check_redis` → panaccess_session_store ok |
 | 10 | [ ] | **P1** | No usar **`/wind/sync-*`** en horario pico; solo emergencias staff | Sync HTTP es **síncrono** en worker web (hasta 600 s) | Operación | Documentar procedimiento interno |
 | 11 | [ ] | **P1** | Optimizar **login info en full sync** (no 1 API por suscriptor) | Correctivo nocturno puede tardar horas | `getSubscriberLoginInfo.py`, `full_sync.py` | Medir duración full sync antes/después |
 | 12 | [ ] | **P1** | Perfil: API PanAccess **por código**, no listar todo el catálogo | `_sync_subscriber_row_from_panaccess` es O(n) | `subscriber_catalog.py` | `GET /api/v1/profile/me/` con 1 llamada PanAccess máx. |
@@ -80,6 +80,8 @@ Checklist ordenada de **mayor a menor** importancia. Resolver **un ítem a la ve
 | 5 | 2026-05-22 | — | `deploy/nginx/win-backend.conf`, middleware IP, `NGINX_TLS_Y_RESTRICCION_UBUNTU.md`. **Pendiente:** certbot + ufw en Ubuntu. |
 | 6 | 2026-05-22 | — | Ruta `ops/panaccess-session/`, staff only, sin `session_id`; fix URL duplicada en `urls.py`. |
 | 7 | 2026-05-22 | — | `RegisterThrottle`, `CREATE_SUBSCRIBER_PUBLIC_ENABLED`, nginx limit_req, doc registro. |
+| 8 | 2026-05-22 | — | `check_deploy --strict` valida full-sync HTTP; doc `FULL_SYNC_PRODUCCION.md`. |
+| 9 | 2026-05-22 | — | `.env` explícito, `check_deploy`/`check_redis` validan sesión Redis; doc. |
 
 ---
 
@@ -91,6 +93,8 @@ Checklist ordenada de **mayor a menor** importancia. Resolver **un ítem a la ve
 - [CORS_PRODUCCION_UBUNTU.md](./CORS_PRODUCCION_UBUNTU.md) — ítem **#4** (orígenes del frontend)
 - [NGINX_TLS_Y_RESTRICCION_UBUNTU.md](./NGINX_TLS_Y_RESTRICCION_UBUNTU.md) — ítem **#5** (TLS + bloqueo sync público)
 - [REGISTRO_PUBLICO_SEGURIDAD.md](./REGISTRO_PUBLICO_SEGURIDAD.md) — ítem **#7** (create-subscriber)
+- [FULL_SYNC_PRODUCCION.md](./FULL_SYNC_PRODUCCION.md) — ítem **#8** (full-sync solo Celery)
+- [PANACCESS_SESION_REDIS.md](./PANACCESS_SESION_REDIS.md) — ítem **#9** (sesión PanAccess multi-worker)
 - [DESPLIEGUE.md](./DESPLIEGUE.md) — comandos worker, beat, variables `.env`
 - [ANALISIS_ESCALABILIDAD.md](./ANALISIS_ESCALABILIDAD.md) — contexto de carga (revisar tras ítem 21)
 

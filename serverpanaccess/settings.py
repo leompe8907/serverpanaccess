@@ -38,6 +38,11 @@ if DatabaseConfig.use_postgresql():
 RedisConfig.validate()
 
 
+def _csv_env(name: str) -> list[str]:
+    raw = os.getenv(name, "")
+    return [x.strip() for x in raw.split(",") if x.strip()]
+
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
@@ -128,11 +133,6 @@ SECURE_CROSS_ORIGIN_OPENER_POLICY = 'same-origin-allow-popups'
 # ============================================================================
 # CORS (frontend separado del backend)
 # ============================================================================
-def _csv_env(name: str) -> list[str]:
-    raw = os.getenv(name, "")
-    return [x.strip() for x in raw.split(",") if x.strip()]
-
-
 _CORS_DEV_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",

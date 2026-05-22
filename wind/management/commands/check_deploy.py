@@ -1,12 +1,14 @@
 """
-Comprueba configuración lista para producción (roadmap #3 y #4).
+Comprueba configuración lista para producción (roadmap #3–#4, #8–#9).
 Ejecuta ``manage.py check --deploy`` y validaciones adicionales del .env.
 """
+import os
+
 from django.conf import settings
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
 
-from appConfig import DjangoConfig
+from appConfig import DjangoConfig, RedisConfig
 
 
 class Command(BaseCommand):
@@ -71,7 +73,56 @@ class Command(BaseCommand):
                     "CORS usa http:// en producción; preferir https:// si el front es público"
                 )
 
+        full_sync_http = os.getenv("FULL_SYNC_HTTP_ENABLED", "false").lower() in (
+            "true",
+            "1",
+            "yes",
+        )
+        celery_full_sync = os.getenv("CELERY_FULL_SYNC_ENABLED", "true").lower() in (
+            "true",
+            "1",
+            "yes",
+        )
+        self.stdout.write(f"FULL_SYNC_HTTP_ENABLED: {full_sync_http}")
+        self.stdout.write(f"CELERY_FULL_SYNC_ENABLED: {celery_full_sync}")
+
+        panaccess_session_redis = getattr(settings, "PANACCESS_SESSION_USE_REDIS", False)
+        panaccess_session_ttl = getattr(settings, "PANACCESS_SESSION_TTL_SECONDS", 1500)
+        self.stdout.write(f"PANACCESS_SESSION_USE_REDIS: {panaccess_session_redis}")
+        self.stdout.write(f"PANACCESS_SESSION_TTL_SECONDS: {panaccess_session_ttl}")
+
+        if panaccess_session_redis:
+            try:
+                RedisConfig.get_client().ping()
+                self.stdout.write(self.style.SUCCESS("Redis (sesión PanAccess): ping OK"))
+            except Exception as exc:
+                msg = f"PANACCESS_SESSION_USE_REDIS=true pero Redis no responde: {exc}"
+                if strict and not settings.DEBUG:
+                    errors.append(msg)
+                else:
+                    warnings.append(msg)
+
         if strict and not settings.DEBUG:
+            if not panaccess_session_redis:
+                errors.append(
+                    "PANACCESS_SESSION_USE_REDIS=false en producción con varios workers Gunicorn. "
+                    "Use true y Redis activo (roadmap #9)."
+                )
+            elif os.getenv("PANACCESS_SESSION_USE_REDIS") is None:
+                warnings.append(
+                    "Defina PANACCESS_SESSION_USE_REDIS=true explícitamente en .env (no solo el default)."
+                )
+
+        if strict and not settings.DEBUG:
+            if full_sync_http:
+                errors.append(
+                    "FULL_SYNC_HTTP_ENABLED=true en producción. "
+                    "Use false y deje el correctivo solo a Celery Beat (roadmap #8)."
+                )
+            if not celery_full_sync:
+                errors.append(
+                    "CELERY_FULL_SYNC_ENABLED=false: el full-sync nocturno no se programará en Beat."
+                )
             if not getattr(settings, "PRODUCTION_HTTPS", False):
                 warnings.append(
                     "PRODUCTION_HTTPS no está activo; use true detrás de nginx con TLS"
