@@ -47,8 +47,23 @@ SECRET_KEY = DjangoConfig.SECRET_KEY
 #* SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = DjangoConfig.DEBUG
 
-# Hosts permitidos desde .env (ej. ALLOWED_HOSTS=localhost,127.0.0.1 o * en dev)
+# Hosts permitidos desde .env (ej. ALLOWED_HOSTS=localhost,127.0.0.1 — sin * en prod)
 ALLOWED_HOSTS = DjangoConfig.ALLOWED_HOSTS or ['localhost', '127.0.0.1']
+
+# HTTPS terminado en nginx (roadmap #3 / #5). PRODUCTION_HTTPS=true en Ubuntu con TLS.
+PRODUCTION_HTTPS = _env_bool("PRODUCTION_HTTPS")
+if PRODUCTION_HTTPS and not DEBUG:
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = 31536000
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+
+# Rutas sync/admin solo desde estas IPs (roadmap #5). Vacío = sin filtro Django (usar nginx).
+# Ejemplo: SYNC_ADMIN_IP_ALLOWLIST=127.0.0.1,10.8.0.0/24
+SYNC_ADMIN_IP_ALLOWLIST = _csv_env("SYNC_ADMIN_IP_ALLOWLIST")
 
 
 # ============================================================================
@@ -101,6 +116,12 @@ MIDDLEWARE = [
     'allauth.account.middleware.AccountMiddleware',
 ]
 
+if SYNC_ADMIN_IP_ALLOWLIST:
+    MIDDLEWARE.insert(
+        1,
+        "wind.middleware.sync_admin_ip_middleware.SyncAdminIPRestrictionMiddleware",
+    )
+
 # Permitir que el popup de Google Sign-In se comunique con nuestra ventana
 SECURE_CROSS_ORIGIN_OPENER_POLICY = 'same-origin-allow-popups'
 
@@ -112,18 +133,27 @@ def _csv_env(name: str) -> list[str]:
     return [x.strip() for x in raw.split(",") if x.strip()]
 
 
+_CORS_DEV_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
 _CORS_ALLOWED_ORIGINS = _csv_env("CORS_ALLOWED_ORIGINS")
 if not _CORS_ALLOWED_ORIGINS:
-    # Sin variable en .env: orígenes típicos de front local (CRA :3000, Vite :5173).
-    # En producción define CORS_ALLOWED_ORIGINS=https://tu-dominio.com (no dejes vacío si el front es otro host).
-    _CORS_ALLOWED_ORIGINS = [
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ]
+    # Prod (DEBUG=false): obligar CORS_ALLOWED_ORIGINS en .env (roadmap #4).
+    # Dev: DEBUG=true o CORS_DEV_DEFAULTS=true usa orígenes locales Vite/CRA.
+    if DEBUG or _env_bool("CORS_DEV_DEFAULTS"):
+        _CORS_ALLOWED_ORIGINS = _CORS_DEV_ORIGINS
+    else:
+        _CORS_ALLOWED_ORIGINS = []
 
 CORS_ALLOWED_ORIGINS = _CORS_ALLOWED_ORIGINS
+
+if os.getenv("CORS_ALLOW_ALL_ORIGINS", "").lower() in ("true", "1", "yes"):
+    raise EnvironmentError(
+        "CORS_ALLOW_ALL_ORIGINS no está permitido. Use CORS_ALLOWED_ORIGINS con dominios concretos."
+    )
 
 # Si necesitas cookies/sesión cross-site (no es el caso típico de JWT en header),
 # habilita credenciales y asegúrate de NO usar CORS_ALLOW_ALL_ORIGINS=True con esto.

@@ -28,9 +28,9 @@ Checklist ordenada de **mayor a menor** importancia. Resolver **un ítem a la ve
 |---|--------|-----------|-----------|---------|---------------|-------------------|
 | 1 | [x] | **P0** | Activar **PostgreSQL** en Ubuntu (`DB_ENGINE`, migrar; sin Docker) | SQLite no aguanta escrituras concurrentes ni sync masivo | `.env` + **[POSTGRESQL_UBUNTU.md](./POSTGRESQL_UBUNTU.md)** | `python manage.py check_database` → postgresql + ok; `migrate` |
 | 2 | [x] | **P0** | **Redis** + `CELERY_TASK_ALWAYS_EAGER=false` + worker `-Q sync_subscribers` + **Beat** | Sin esto no hay sync incremental ni full sync nocturno | **[REDIS_CELERY_UBUNTU.md](./REDIS_CELERY_UBUNTU.md)** + `deploy/systemd/` | `check_redis`; encolar tarea; worker+beat en Ubuntu |
-| 3 | [ ] | **P0** | Prod: `DEBUG=false`, `SECRET_KEY` fuerte, `ALLOWED_HOSTS` con dominios reales | Seguridad; evitar stack traces públicos | `.env` | `manage.py check --deploy`; petición con Host inválido → 400 |
-| 4 | [ ] | **P0** | Configurar **`CORS_ALLOWED_ORIGINS`** con el front real | Portal en otro host falla sin esto | `.env` | Login desde front; preflight OPTIONS OK |
-| 5 | [ ] | **P0** | **TLS** (nginx/ALB) + no exponer sync/admin a internet abierto | Sync pesado; superficie de ataque | Infra | Solo HTTPS; sync solo VPN/IP allowlist |
+| 3 | [x] | **P0** | Prod: `DEBUG=false`, `SECRET_KEY` fuerte, `ALLOWED_HOSTS` con dominios reales | Seguridad; evitar stack traces públicos | **[SEGURIDAD_PRODUCCION_UBUNTU.md](./SEGURIDAD_PRODUCCION_UBUNTU.md)** | `check_deploy --strict`; Host inválido → 400 |
+| 4 | [x] | **P0** | Configurar **`CORS_ALLOWED_ORIGINS`** con el front real | Portal en otro host falla sin esto | **[CORS_PRODUCCION_UBUNTU.md](./CORS_PRODUCCION_UBUNTU.md)** | `check_deploy --strict`; preflight OPTIONS OK |
+| 5 | [x] | **P0** | **TLS** (nginx) + no exponer sync/admin a internet abierto | Sync pesado; superficie de ataque | **[NGINX_TLS_Y_RESTRICCION_UBUNTU.md](./NGINX_TLS_Y_RESTRICCION_UBUNTU.md)** + `deploy/nginx/` | HTTPS; sync 403 desde internet |
 | 6 | [ ] | **P0** | Proteger o eliminar **`GET /wind/login/`** (`AllowAny`, expone `session_id`) | Sesión de sistema PanAccess filtrada | `wind/functions/login.py` | Sin auth → 401/404; con admin si se mantiene diagnóstico |
 | 7 | [ ] | **P0** | Endurecer **`create-subscriber/`** (JWT, rate limit, o restricción red) | Abuso = muchas llamadas PanAccess | `create_subscriber.py` | Intentos anónimos masivos limitados/bloqueados |
 | 8 | [ ] | **P1** | Mantener **`FULL_SYNC_HTTP_ENABLED=false`** en prod | Correctivo solo por Celery | `.env` | POST `/wind/full-sync/` → 403 |
@@ -75,6 +75,9 @@ Checklist ordenada de **mayor a menor** importancia. Resolver **un ítem a la ve
 |---|-------|-------------|------------|
 | 1 | 2026-05-22 | — | Código/docs: `check_database`, `POSTGRESQL_UBUNTU.md`, fix `DB_*` en appConfig. Local: PG ok + migrate. **Pendiente:** repetir en Ubuntu Server según guía. |
 | 2 | 2026-05-22 | — | `check_redis`, `REDIS_CELERY_UBUNTU.md`, systemd worker/beat/gunicorn, `.env` Redis/Celery. **Pendiente:** `apt install redis`, servicios en Ubuntu. |
+| 3 | 2026-05-22 | — | `check_deploy`, `SEGURIDAD_PRODUCCION_UBUNTU.md`, `PRODUCTION_HTTPS`, `.env` sin `*`. **Pendiente:** dominios reales en Ubuntu + `--strict`. |
+| 4 | 2026-05-22 | — | CORS en settings (sin allow-all), `CORS_PRODUCCION_UBUNTU.md`, `check_deploy` valida CORS. **Pendiente:** URLs https del front en Ubuntu. |
+| 5 | 2026-05-22 | — | `deploy/nginx/win-backend.conf`, middleware IP, `NGINX_TLS_Y_RESTRICCION_UBUNTU.md`. **Pendiente:** certbot + ufw en Ubuntu. |
 
 ---
 
@@ -82,6 +85,9 @@ Checklist ordenada de **mayor a menor** importancia. Resolver **un ítem a la ve
 
 - [POSTGRESQL_UBUNTU.md](./POSTGRESQL_UBUNTU.md) — ítem **#1** (PostgreSQL nativo en Ubuntu)
 - [REDIS_CELERY_UBUNTU.md](./REDIS_CELERY_UBUNTU.md) — ítem **#2** (Redis + Celery + systemd)
+- [SEGURIDAD_PRODUCCION_UBUNTU.md](./SEGURIDAD_PRODUCCION_UBUNTU.md) — ítem **#3** (DEBUG, SECRET_KEY, ALLOWED_HOSTS)
+- [CORS_PRODUCCION_UBUNTU.md](./CORS_PRODUCCION_UBUNTU.md) — ítem **#4** (orígenes del frontend)
+- [NGINX_TLS_Y_RESTRICCION_UBUNTU.md](./NGINX_TLS_Y_RESTRICCION_UBUNTU.md) — ítem **#5** (TLS + bloqueo sync público)
 - [DESPLIEGUE.md](./DESPLIEGUE.md) — comandos worker, beat, variables `.env`
 - [ANALISIS_ESCALABILIDAD.md](./ANALISIS_ESCALABILIDAD.md) — contexto de carga (revisar tras ítem 21)
 

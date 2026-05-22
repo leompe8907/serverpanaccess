@@ -255,8 +255,9 @@ Abrir `http://localhost:8089` para la UI de Locust.
 
 | Variable | Ejemplo | Notas |
 |----------|---------|--------|
-| `ALLOWED_HOSTS` | `localhost,127.0.0.1` o `*` en dev | En prod usar dominios reales |
+| `ALLOWED_HOSTS` | `localhost,127.0.0.1` en dev | Dominios reales en prod (sin `*`) — [SEGURIDAD_PRODUCCION_UBUNTU.md](./SEGURIDAD_PRODUCCION_UBUNTU.md) |
 | `DEBUG` | `True` / `False` | `False` en producción |
+| Verificación | `python manage.py check_deploy --strict` | Antes de abrir tráfico en Ubuntu |
 | `CELERY_TASK_ALWAYS_EAGER` | `false` | `true` solo sin Redis/worker |
 | `REDIS_HOST` | `localhost` | |
 
