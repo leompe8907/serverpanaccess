@@ -79,7 +79,7 @@ Cuellos de botella principales para **tráfico de usuarios** (no para sync noctu
 | BD prod | PostgreSQL en `.env` / `DatabaseConfig` | Comentada en `settings.py` — activar al desplegar |
 | Cola | Celery 5.6 + Redis (`RedisConfig` centralizado) | Parcial: 2 tareas en beat; `full-sync` pendiente |
 | Estáticos | WhiteNoise | OK |
-| Servidor | WSGI / Daphne | Despliegue (Docker/Azure) pendiente |
+| Servidor | Gunicorn / Daphne en Ubuntu | Despliegue nativo (systemd), sin Docker |
 | Cache | — | **No configurado** |
 
 ### Endpoints principales (`wind/urls.py`)
@@ -336,7 +336,7 @@ Roadmap alineado con la intención del equipo:
 
 - [x] PostgreSQL configurable vía `DB_ENGINE` (SQLite sigue en dev).  
 - [x] `CACHES` Redis (`REDIS_CACHE_DB`); sesión PanAccess en Redis (`PANACCESS_SESSION_USE_REDIS`).  
-- [ ] Docker / Azure / nginx — **pendiente** (despliegue; fuera del foco actual).  
+- [ ] systemd + nginx en Ubuntu — **pendiente** (ver ROADMAP_PRODUCCION.md; sin Docker).  
 - [x] Sentry opcional (`SENTRY_DSN`); `/health/` y `/ready/`.  
 - [x] Locust básico (`scripts/load/locustfile.py`).  
 - [ ] Optimización y pruebas de carga antes de desplegar — **foco actual**.  

@@ -116,13 +116,14 @@ class SocialConfig:
 
 class DatabaseConfig:
     # SQLite en dev si DB_ENGINE no indica PostgreSQL.
-    # Prod/staging: DB_ENGINE=django.db.backends.postgresql
-    ENGINE = _strip_env(os.getenv("DB_ENGINE")) or _strip_env(os.getenv("ENGINE"))
-    NAME = _strip_env(os.getenv("DB_NAME")) or _strip_env(os.getenv("NAME"))
-    USER = _strip_env(os.getenv("DB_USER")) or _strip_env(os.getenv("USER"))
-    PASSWORD = _strip_env(os.getenv("DB_PASSWORD")) or _strip_env(os.getenv("PASSWORD"))
-    HOST = _strip_env(os.getenv("DB_HOST")) or _strip_env(os.getenv("HOST"))
-    PORT = _strip_env(os.getenv("DB_PORT")) or _strip_env(os.getenv("PORT"))
+    # Prod (Ubuntu): DB_ENGINE=django.db.backends.postgresql + DB_* (solo prefijo DB_).
+    # No usar fallbacks USER/HOST del sistema — en Linux USER es el usuario shell.
+    ENGINE = _strip_env(os.getenv("DB_ENGINE"))
+    NAME = _strip_env(os.getenv("DB_NAME"))
+    USER = _strip_env(os.getenv("DB_USER"))
+    PASSWORD = _strip_env(os.getenv("DB_PASSWORD"))
+    HOST = _strip_env(os.getenv("DB_HOST"))
+    PORT = _strip_env(os.getenv("DB_PORT"))
 
     REPLICA_HOST = _strip_env(os.getenv("DB_REPLICA_HOST"))
     REPLICA_PORT = _strip_env(os.getenv("DB_REPLICA_PORT"))

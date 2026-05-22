@@ -1,0 +1,20 @@
+[Unit]
+Description=Win Backend Celery Worker (cola sync_subscribers)
+After=network.target redis-server.service postgresql.service
+Wants=redis-server.service
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/win-backend
+EnvironmentFile=/opt/win-backend/.env
+
+# Ajustar ruta al Python del venv:
+ExecStart=/opt/win-backend/env/bin/python -m celery -A serverpanaccess worker -l info -Q sync_subscribers
+
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

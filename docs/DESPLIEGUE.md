@@ -63,25 +63,22 @@ Detrás de **nginx** con TLS y rate limiting.
 
 Requerido para Celery (salvo modo eager en dev).
 
-```powershell
-# Verificar (si redis-cli está instalado)
+**Ubuntu Server:** [REDIS_CELERY_UBUNTU.md](./REDIS_CELERY_UBUNTU.md).
+
+```bash
 redis-cli ping
+python manage.py check_redis
 ```
 
-Variables en `.env`:
-
-```env
-REDIS_HOST=localhost
-REDIS_PORT=6379
-REDIS_DB=0
-CELERY_TASK_ALWAYS_EAGER=false
-```
+Variables en `.env` (ver `.env.example`).
 
 ---
 
 ## 4. Celery (tareas en segundo plano)
 
-Abrir **dos terminales** además del servidor web.
+**Ubuntu:** servicios systemd en `deploy/systemd/` — ver [REDIS_CELERY_UBUNTU.md](./REDIS_CELERY_UBUNTU.md).
+
+Abrir **dos terminales** además del servidor web (desarrollo local).
 
 ### Worker (cola obligatoria)
 
@@ -173,9 +170,16 @@ Renueva o confirma la sesión del singleton (cuenta de servicio, no usuario fina
 
 ## 6. Fase 3 — Preparación para carga y prod (sin contenedores por ahora)
 
-> **Despliegue (Docker, Azure, nginx):** se abordará más adelante. Aquí queda lo que sirve para optimizar y probar carga en local o en un servidor sin Docker.
+> **Despliegue en Ubuntu Server:** PostgreSQL, Redis, Gunicorn y Celery en el host (sin contenedores). Ver [POSTGRESQL_UBUNTU.md](./POSTGRESQL_UBUNTU.md) y [ROADMAP_PRODUCCION.md](./ROADMAP_PRODUCCION.md).
 
 ### 6.1 PostgreSQL (staging/prod)
+
+**Ubuntu Server (sin Docker):** [POSTGRESQL_UBUNTU.md](./POSTGRESQL_UBUNTU.md).
+
+```bash
+python manage.py check_database
+python manage.py migrate
+```
 
 En `.env` (ver `.env.example`):
 

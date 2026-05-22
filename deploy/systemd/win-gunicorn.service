@@ -1,0 +1,23 @@
+[Unit]
+Description=Win Backend Gunicorn (Django API)
+After=network.target postgresql.service redis-server.service
+Wants=postgresql.service redis-server.service
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/win-backend
+EnvironmentFile=/opt/win-backend/.env
+
+ExecStart=/opt/win-backend/env/bin/gunicorn serverpanaccess.wsgi:application \
+    --bind 127.0.0.1:8000 \
+    --workers 4 \
+    --threads 2 \
+    --timeout 120
+
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

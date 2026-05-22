@@ -1,0 +1,19 @@
+[Unit]
+Description=Win Backend Celery Beat (sync programado + full sync nocturno)
+After=network.target redis-server.service win-celery-worker.service
+Wants=redis-server.service
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/win-backend
+EnvironmentFile=/opt/win-backend/.env
+
+ExecStart=/opt/win-backend/env/bin/python -m celery -A serverpanaccess beat -l info
+
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
