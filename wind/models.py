@@ -108,9 +108,9 @@ class ListOfSmartcards(models.Model):
         return f"Smartcard {self.sn or 'N/A'}"
 
 class SubscriberLoginInfo(models.Model):
-    subscriberCode = models.CharField(max_length=100, null=True, blank=True)
-    login1 = models.IntegerField(null=True, blank=True)
-    login2 = models.CharField(max_length=100, null=True, blank=True)
+    subscriberCode = models.CharField(max_length=100, null=True, blank=True, db_index=True)
+    login1 = models.IntegerField(null=True, blank=True, db_index=True)
+    login2 = models.CharField(max_length=100, null=True, blank=True, db_index=True)
     additionalLogins = models.JSONField(null=True, blank=True)
     password_hash = models.CharField(max_length=255, null=True, blank=True)  # Password encriptado
     licenses = models.JSONField(null=True, blank=True)

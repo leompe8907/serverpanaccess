@@ -49,12 +49,12 @@ Checklist ordenada de **mayor a menor** importancia. Resolver **un ítem a la ve
 | 21 | [x] | **P2** | Actualizar **`ANALISIS_ESCALABILIDAD.md`** (Beat, throttling, caché) | Doc desactualizado | `docs/ANALISIS_ESCALABILIDAD.md` | Alineado con roadmap y sync/perfil |
 | 22 | [x] | **P2** | Alertas/logs Celery: `skipped`, duración `full_sync_task` | Saber si correctivo falló | `wind/tasks.py` logs | Log `completada en Xs`; `skipped` en compare/full |
 | 23 | [x] | **P3** | `SECURE_*` en Django si TLS no solo en nginx | Defensa en profundidad | **[PRODUCTION_HTTPS.md](./PRODUCTION_HTTPS.md)** + `settings.py` | `PRODUCTION_HTTPS=true`; `check_deploy --strict` |
-| 24 | [ ] | **P3** | **`DB_REPLICA_HOST`** si lecturas crecen | Descargar carga al primary | `.env` | Lecturas perfil en réplica |
-| 25 | [ ] | **P3** | **`CDN_STATIC_URL`** para estáticos del portal | Menos carga al app | `.env` | Assets desde CDN |
+| 24 | [x] | **P3** | **`DB_REPLICA_HOST`** si lecturas crecen | Descargar carga al primary | **[DB_REPLICA_UBUNTU.md](./DB_REPLICA_UBUNTU.md)** + router | `DATABASES` con `replica` si .env |
+| 25 | [x] | **P3** | **`CDN_STATIC_URL`** para estáticos del portal | Menos carga al app | **[CDN_STATIC.md](./CDN_STATIC.md)** | `STATIC_URL` desde CDN |
 | 26 | [x] | **P3** | Encolar **sync manual** HTTP vía Celery (como full-sync) | Admin no bloquea Gunicorn | **[SYNC_HTTP_ASYNC.md](./SYNC_HTTP_ASYNC.md)** | POST sync → 202 + `task_id` |
-| 27 | [ ] | **P3** | Índices extra tras profiling (`SubscriberLoginInfo`, etc.) | Queries lentas puntuales | `models.py` + migración | `EXPLAIN` en queries pesadas |
+| 27 | [x] | **P3** | Índices extra tras profiling (`SubscriberLoginInfo`, etc.) | Queries lentas puntuales | migración `0002` + **[INDICES_BD.md](./INDICES_BD.md)** | `EXPLAIN` login1/login2 |
 | 28 | [x] | **P3** | CI/CD: migrate, tests, deploy web+worker+beat | Menos drift | `.github/workflows/ci.yml` | Pipeline verde en PR |
-| 29 | [ ] | **P4** | Objetivo **5k concurrentes**: más workers, pool PG, caché perfil | Fuera del diseño actual | Arquitectura | Prueba de carga con objetivo acordado |
+| 29 | [x] | **P4** | Objetivo **5k concurrentes**: más workers, pool PG, caché perfil | Fuera del diseño actual | **[ESCALA_5000_USUARIOS.md](./ESCALA_5000_USUARIOS.md)** | Locust + fases A/B/C |
 
 ---
 
@@ -95,6 +95,9 @@ Checklist ordenada de **mayor a menor** importancia. Resolver **un ítem a la ve
 | 26 | 2026-05-22 | — | `SYNC_HTTP_ASYNC`, `sync_products_task`, POST sync → 202 + `status_url`. |
 | — | 2026-05-22 | — | [DEPLOY_UBUNTU_CHECKLIST.md](./DEPLOY_UBUNTU_CHECKLIST.md) checklist único deploy. |
 | 28 | 2026-05-22 | — | GitHub Actions: check, test, check_redis; `wind/tests/`. |
+| 24–25 | 2026-05-22 | — | Docs réplica y CDN; código ya existía en settings/router. |
+| 27 | 2026-05-22 | — | Índices `SubscriberLoginInfo`; migración `0002_subscriberlogininfo_indexes`. |
+| 29 | 2026-05-22 | — | Guía arquitectura 5k usuarios. |
 
 ---
 
@@ -122,6 +125,10 @@ Checklist ordenada de **mayor a menor** importancia. Resolver **un ítem a la ve
 - [PRODUCTION_HTTPS.md](./PRODUCTION_HTTPS.md) — ítem **#23**
 - [SYNC_HTTP_ASYNC.md](./SYNC_HTTP_ASYNC.md) — ítem **#26**
 - [CI_CD.md](./CI_CD.md) — ítem **#28** (GitHub Actions)
+- [DB_REPLICA_UBUNTU.md](./DB_REPLICA_UBUNTU.md) — ítem **#24**
+- [CDN_STATIC.md](./CDN_STATIC.md) — ítem **#25**
+- [INDICES_BD.md](./INDICES_BD.md) — ítem **#27**
+- [ESCALA_5000_USUARIOS.md](./ESCALA_5000_USUARIOS.md) — ítem **#29**
 - [DESPLIEGUE.md](./DESPLIEGUE.md) — comandos worker, beat, variables `.env`
 - [ANALISIS_ESCALABILIDAD.md](./ANALISIS_ESCALABILIDAD.md) — contexto de carga (revisar tras ítem 21)
 

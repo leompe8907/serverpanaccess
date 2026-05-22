@@ -98,6 +98,11 @@ class Command(BaseCommand):
 
         sentry_dsn = os.getenv("SENTRY_DSN", "").strip()
         self.stdout.write(f"SENTRY_DSN: {'configurado' if sentry_dsn else 'no (opcional)'}")
+
+        replica_host = os.getenv("DB_REPLICA_HOST", "").strip()
+        cdn = os.getenv("CDN_STATIC_URL", "").strip()
+        self.stdout.write(f"DB_REPLICA_HOST: {replica_host or '(no — solo primary)'}")
+        self.stdout.write(f"CDN_STATIC_URL: {cdn or '(no — /static/ local)'}")
         if strict and not settings.DEBUG and not sentry_dsn:
             warnings.append(
                 "SENTRY_DSN vacío en producción; errores nocturnos no irán a Sentry (roadmap #18)"
