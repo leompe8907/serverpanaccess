@@ -3,13 +3,12 @@ Diagnóstico de sesión PanAccess del singleton (cuenta de servicio).
 
 No exponer en /wind/login/ (portal de usuario). Ruta: /wind/ops/panaccess-session/
 """
-import os
-
 from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 from rest_framework import status
 
+from appConfig import FeatureConfig
 from wind.throttles import SyncAdminThrottle
 from wind.services import get_panaccess
 from wind.exceptions import (
@@ -22,7 +21,7 @@ from wind.exceptions import (
 
 
 def _panaccess_ops_http_enabled() -> bool:
-    return os.getenv("PANACCESS_OPS_HTTP_ENABLED", "false").lower() in ("true", "1", "yes")
+    return FeatureConfig.PANACCESS_OPS_HTTP_ENABLED
 
 
 @api_view(["GET"])

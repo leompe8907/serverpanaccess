@@ -3,14 +3,13 @@ Vista para validar si un sessionId está vigente.
 
 Endpoint que prueba la función logged_in() y el método check_session() del cliente.
 """
-import os
-
 from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.permissions import IsAdminUser
 from wind.throttles import SyncAdminThrottle
 from rest_framework.response import Response
 from rest_framework import status
 
+from appConfig import FeatureConfig
 from wind.utils.panaccess_auth import logged_in
 from wind.services import PanAccessClient
 from wind.exceptions import (
@@ -23,7 +22,7 @@ from wind.exceptions import (
 
 
 def _panaccess_ops_http_enabled() -> bool:
-    return os.getenv("PANACCESS_OPS_HTTP_ENABLED", "false").lower() in ("true", "1", "yes")
+    return FeatureConfig.PANACCESS_OPS_HTTP_ENABLED
 
 
 @api_view(['GET'])

@@ -9,12 +9,25 @@ https://docs.djangoproject.com/en/5.2/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
-import os
 import sys
 from pathlib import Path
 from celery.schedules import crontab, timedelta
 from dotenv import load_dotenv
-from appConfig import DjangoConfig, SocialConfig, DatabaseConfig, RedisConfig, _env_bool
+from appConfig import (
+    CacheConfig,
+    CeleryConfig,
+    CorsConfig,
+    DatabaseConfig,
+    DjangoConfig,
+    EmailConfig,
+    JwtConfig,
+    PanaccessConfig,
+    RedisConfig,
+    SentryConfig,
+    SocialConfig,
+    StaticConfig,
+    ThrottleConfig,
+)
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -33,14 +46,11 @@ if sys.platform == 'win32':
 # Validar las configuraciones
 DjangoConfig.validate()
 SocialConfig.validate()
+PanaccessConfig.validate()
 if DatabaseConfig.use_postgresql():
     DatabaseConfig.configure()
 RedisConfig.validate()
-
-
-def _csv_env(name: str) -> list[str]:
-    raw = os.getenv(name, "")
-    return [x.strip() for x in raw.split(",") if x.strip()]
+CorsConfig.validate_no_allow_all()
 
 
 # Quick-start development settings - unsuitable for production
@@ -56,7 +66,7 @@ DEBUG = DjangoConfig.DEBUG
 ALLOWED_HOSTS = DjangoConfig.ALLOWED_HOSTS or ['localhost', '127.0.0.1']
 
 # HTTPS terminado en nginx (roadmap #3 / #5). PRODUCTION_HTTPS=true en Ubuntu con TLS.
-PRODUCTION_HTTPS = _env_bool("PRODUCTION_HTTPS")
+PRODUCTION_HTTPS = DjangoConfig.PRODUCTION_HTTPS
 if PRODUCTION_HTTPS and not DEBUG:
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
     SECURE_SSL_REDIRECT = True
@@ -68,7 +78,7 @@ if PRODUCTION_HTTPS and not DEBUG:
 
 # Rutas sync/admin solo desde estas IPs (roadmap #5). Vacío = sin filtro Django (usar nginx).
 # Ejemplo: SYNC_ADMIN_IP_ALLOWLIST=127.0.0.1,10.8.0.0/24
-SYNC_ADMIN_IP_ALLOWLIST = _csv_env("SYNC_ADMIN_IP_ALLOWLIST")
+SYNC_ADMIN_IP_ALLOWLIST = DjangoConfig.SYNC_ADMIN_IP_ALLOWLIST
 
 
 # ============================================================================
@@ -132,31 +142,8 @@ SECURE_CROSS_ORIGIN_OPENER_POLICY = 'same-origin-allow-popups'
 # ============================================================================
 # CORS (frontend separado del backend)
 # ============================================================================
-_CORS_DEV_ORIGINS = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-]
-_CORS_ALLOWED_ORIGINS = _csv_env("CORS_ALLOWED_ORIGINS")
-if not _CORS_ALLOWED_ORIGINS:
-    # Prod (DEBUG=false): obligar CORS_ALLOWED_ORIGINS en .env (roadmap #4).
-    # Dev: DEBUG=true o CORS_DEV_DEFAULTS=true usa orígenes locales Vite/CRA.
-    if DEBUG or _env_bool("CORS_DEV_DEFAULTS"):
-        _CORS_ALLOWED_ORIGINS = _CORS_DEV_ORIGINS
-    else:
-        _CORS_ALLOWED_ORIGINS = []
-
-CORS_ALLOWED_ORIGINS = _CORS_ALLOWED_ORIGINS
-
-if os.getenv("CORS_ALLOW_ALL_ORIGINS", "").lower() in ("true", "1", "yes"):
-    raise EnvironmentError(
-        "CORS_ALLOW_ALL_ORIGINS no está permitido. Use CORS_ALLOWED_ORIGINS con dominios concretos."
-    )
-
-# Si necesitas cookies/sesión cross-site (no es el caso típico de JWT en header),
-# habilita credenciales y asegúrate de NO usar CORS_ALLOW_ALL_ORIGINS=True con esto.
-CORS_ALLOW_CREDENTIALS = os.getenv("CORS_ALLOW_CREDENTIALS", "false").lower() in ("true", "1", "yes")
+CORS_ALLOWED_ORIGINS = CorsConfig.resolved_origins(debug=DEBUG)
+CORS_ALLOW_CREDENTIALS = CorsConfig.ALLOW_CREDENTIALS
 
 # Preflight: cubre métodos/headers típicos de APIs JSON + Authorization
 CORS_ALLOW_HEADERS = [
@@ -187,11 +174,11 @@ REST_FRAMEWORK = {
         'wind.throttles.UserBurstThrottle',
     ],
     'DEFAULT_THROTTLE_RATES': {
-        'anon': os.getenv('DRF_THROTTLE_ANON', '60/minute'),
-        'user': os.getenv('DRF_THROTTLE_USER', '600/minute'),
-        'profile': os.getenv('DRF_THROTTLE_PROFILE', '120/minute'),
-        'sync_admin': os.getenv('DRF_THROTTLE_SYNC_ADMIN', '30/minute'),
-        'register': os.getenv('DRF_THROTTLE_REGISTER', '10/hour'),
+        'anon': ThrottleConfig.ANON,
+        'user': ThrottleConfig.USER,
+        'profile': ThrottleConfig.PROFILE,
+        'sync_admin': ThrottleConfig.SYNC_ADMIN,
+        'register': ThrottleConfig.REGISTER,
     },
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
@@ -209,24 +196,20 @@ REST_AUTH = {
 }
 
 # Preferimos Authorization: Bearer. Cookies JWT solo si el front lo requiere explícitamente.
-_JWT_USE_COOKIES = os.getenv("JWT_USE_COOKIES", "false").lower() in ("true", "1", "yes")
-if _JWT_USE_COOKIES:
+if JwtConfig.USE_COOKIES:
     REST_AUTH.update(
         {
-            "JWT_AUTH_COOKIE": os.getenv("JWT_AUTH_COOKIE", "wind-auth"),
-            "JWT_AUTH_REFRESH_COOKIE": os.getenv("JWT_AUTH_REFRESH_COOKIE", "wind-refresh-token"),
+            "JWT_AUTH_COOKIE": JwtConfig.AUTH_COOKIE,
+            "JWT_AUTH_REFRESH_COOKIE": JwtConfig.REFRESH_COOKIE,
         }
     )
 
 SIMPLE_JWT = {
     # Prod: 5–15 min recomendado. Dev: puede ser más largo.
     'ACCESS_TOKEN_LIFETIME': timedelta(
-        minutes=max(
-            1,
-            int(os.getenv("JWT_ACCESS_MINUTES", "60" if DEBUG else "15")),
-        )
+        minutes=max(1, JwtConfig.access_minutes(debug=DEBUG)),
     ),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=JwtConfig.REFRESH_DAYS),
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
     'AUTH_HEADER_TYPES': ('Bearer',),
@@ -246,36 +229,14 @@ ACCOUNT_SIGNUP_FIELDS = ['email*', 'password1*', 'password2*']
 # Default:
 # - Dev (DEBUG=true): none (evita fallos si no hay SMTP)
 # - Prod (DEBUG=false): mandatory (recomendado si hay registro por contraseña)
-_ACCOUNT_EMAIL_VERIFICATION = os.getenv(
-    "ACCOUNT_EMAIL_VERIFICATION",
-    "none" if DEBUG else "mandatory",
-).strip().lower()
-if _ACCOUNT_EMAIL_VERIFICATION not in ("none", "optional", "mandatory"):
-    raise EnvironmentError(
-        "ACCOUNT_EMAIL_VERIFICATION inválido. Use: none|optional|mandatory"
-    )
-ACCOUNT_EMAIL_VERIFICATION = _ACCOUNT_EMAIL_VERIFICATION
-
-# Email backend:
-# - Dev: console backend por defecto
-# - Prod: SMTP si EMAIL_HOST está definido; si no, console (pero check_deploy --strict
-#         puede exigir SMTP si ACCOUNT_EMAIL_VERIFICATION != none).
-_EMAIL_BACKEND = os.getenv("EMAIL_BACKEND", "").strip()
-if _EMAIL_BACKEND:
-    EMAIL_BACKEND = _EMAIL_BACKEND
-else:
-    EMAIL_BACKEND = (
-        "django.core.mail.backends.smtp.EmailBackend"
-        if (not DEBUG and os.getenv("EMAIL_HOST", "").strip())
-        else "django.core.mail.backends.console.EmailBackend"
-    )
-
-EMAIL_HOST = os.getenv("EMAIL_HOST", "").strip()
-EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
-EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "").strip()
-EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "").strip()
-EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "true").lower() in ("true", "1", "yes")
-DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "").strip()
+ACCOUNT_EMAIL_VERIFICATION = EmailConfig.account_verification(debug=DEBUG)
+EMAIL_BACKEND = EmailConfig.resolved_backend(debug=DEBUG)
+EMAIL_HOST = EmailConfig.HOST
+EMAIL_PORT = EmailConfig.PORT
+EMAIL_HOST_USER = EmailConfig.HOST_USER
+EMAIL_HOST_PASSWORD = EmailConfig.HOST_PASSWORD
+EMAIL_USE_TLS = EmailConfig.USE_TLS
+DEFAULT_FROM_EMAIL = EmailConfig.DEFAULT_FROM
 
 # Adaptador perzonalizado para conectar Google con PanAccess
 SOCIALACCOUNT_ADAPTER = 'wind.adapters.PanAccessSocialAccountAdapter'
@@ -378,8 +339,7 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 # CDN opcional (Fase 4): CDN_STATIC_URL=https://cdn.ejemplo.com/static/
-_cdn_static = os.getenv('CDN_STATIC_URL', '').strip()
-STATIC_URL = ((_cdn_static if _cdn_static else '/static/').rstrip('/') + '/')
+STATIC_URL = ((StaticConfig.CDN_URL or '/static/').rstrip('/') + '/')
 
 # En producción, Django NO sirve estáticos por defecto.
 # WhiteNoise los sirve desde STATIC_ROOT luego de collectstatic.
@@ -411,13 +371,6 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # CELERY / REDIS (tareas asíncronas y programación)
 # ============================================================================
 
-def _as_int(value, default):
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
-
-
 REDIS_HOST = RedisConfig.HOST
 REDIS_PORT = RedisConfig.PORT
 REDIS_DB = RedisConfig.DB
@@ -427,11 +380,10 @@ CELERY_BROKER_URL = RedisConfig.broker_url()
 CELERY_RESULT_BACKEND = RedisConfig.result_backend_url()
 CELERY_TASK_ALWAYS_EAGER = RedisConfig.celery_eager()
 CELERY_TASK_EAGER_PROPAGATES = CELERY_TASK_ALWAYS_EAGER
-CELERY_TASK_TIME_LIMIT = _as_int(os.getenv("CELERY_TASK_TIME_LIMIT", "600"), 600)          # hard limit
-CELERY_TASK_SOFT_TIME_LIMIT = _as_int(os.getenv("CELERY_TASK_SOFT_TIME_LIMIT", "540"), 540)  # aviso previo
-CELERY_WORKER_MAX_TASKS_PER_CHILD = _as_int(os.getenv("CELERY_WORKER_MAX_TASKS_PER_CHILD", "100"), 100)
-# Windows: pool "solo" (prefork falla). Linux: "prefork". Override con CELERY_WORKER_POOL.
-CELERY_WORKER_POOL = RedisConfig.celery_worker_pool()
+CELERY_TASK_TIME_LIMIT = CeleryConfig.TASK_TIME_LIMIT
+CELERY_TASK_SOFT_TIME_LIMIT = CeleryConfig.TASK_SOFT_TIME_LIMIT
+CELERY_WORKER_MAX_TASKS_PER_CHILD = CeleryConfig.WORKER_MAX_TASKS_PER_CHILD
+CELERY_WORKER_POOL = CeleryConfig.WORKER_POOL
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = not CELERY_TASK_ALWAYS_EAGER
 CELERY_ENABLE_UTC = True
 CELERY_TIMEZONE = TIME_ZONE
@@ -445,31 +397,23 @@ CELERY_TASK_ROUTES = {
     'wind.tasks.full_sync_task': {'queue': 'sync_subscribers'},
 }
 
-_SYNC_MINUTES = max(1, _as_int(os.getenv("CELERY_SYNC_MINUTES", "10"), 10))
-_SYNC_LIMIT = max(1, _as_int(os.getenv("CELERY_SYNC_LIMIT", "200"), 200))
-_SYNC_QUEUE = os.getenv("CELERY_SYNC_QUEUE", "sync_subscribers")
+_SYNC_MINUTES = CeleryConfig.SYNC_MINUTES
+_SYNC_LIMIT = CeleryConfig.SYNC_LIMIT
+_SYNC_QUEUE = CeleryConfig.SYNC_QUEUE
+_SMARTCARD_SYNC_MINUTES = CeleryConfig.SMARTCARD_SYNC_MINUTES
 
-# Configuración para smartcards (puede tener intervalo diferente)
-_SMARTCARD_SYNC_MINUTES = max(1, _as_int(os.getenv("CELERY_SMARTCARD_SYNC_MINUTES", "10"), 10))
-
-# Usar timedelta para schedule más predecible (cada X minutos desde el inicio)
-# Alternativamente puedes usar crontab para ejecutar en minutos específicos
-_USE_CRONTAB = os.getenv("CELERY_USE_CRONTAB", "false").lower() == "true"
-
-if _USE_CRONTAB:
-    # Modo crontab: ejecuta en minutos múltiplos de _SYNC_MINUTES (ej: */10 = 0, 10, 20, 30, 40, 50)
+if CeleryConfig.USE_CRONTAB:
     _SCHEDULE = crontab(minute=f"*/{_SYNC_MINUTES}")
     _SMARTCARD_SCHEDULE = crontab(minute=f"*/{_SMARTCARD_SYNC_MINUTES}")
 else:
-    # Modo timedelta: ejecuta cada X minutos desde el inicio de Beat
     _SCHEDULE = timedelta(minutes=_SYNC_MINUTES)
     _SMARTCARD_SCHEDULE = timedelta(minutes=_SMARTCARD_SYNC_MINUTES)
 
-_FULL_SYNC_HOUR = max(0, min(23, _as_int(os.getenv("CELERY_FULL_SYNC_HOUR", "0"), 0)))
-_FULL_SYNC_MINUTE = max(0, min(59, _as_int(os.getenv("CELERY_FULL_SYNC_MINUTE", "0"), 0)))
-_FULL_SYNC_TIME_LIMIT = max(600, _as_int(os.getenv("CELERY_FULL_SYNC_TIME_LIMIT", "3600"), 3600))
-_FULL_SYNC_SOFT_LIMIT = max(540, _as_int(os.getenv("CELERY_FULL_SYNC_SOFT_TIME_LIMIT", "3300"), 3300))
-_FULL_SYNC_ENABLED = os.getenv("CELERY_FULL_SYNC_ENABLED", "true").lower() in ("true", "1", "yes")
+_FULL_SYNC_HOUR = CeleryConfig.FULL_SYNC_HOUR
+_FULL_SYNC_MINUTE = CeleryConfig.FULL_SYNC_MINUTE
+_FULL_SYNC_TIME_LIMIT = CeleryConfig.FULL_SYNC_TIME_LIMIT
+_FULL_SYNC_SOFT_LIMIT = CeleryConfig.FULL_SYNC_SOFT_TIME_LIMIT
+_FULL_SYNC_ENABLED = CeleryConfig.FULL_SYNC_ENABLED
 
 CELERY_BEAT_SCHEDULE = {
     # Tras carga manual en deploy (sync-subscribers HTTP); mantenimiento cada N min
@@ -511,10 +455,9 @@ if _FULL_SYNC_ENABLED:
 # ============================================================================
 # CACHÉ REDIS (Fase 3) — DB distinta al broker Celery (REDIS_CACHE_DB)
 # ============================================================================
-REDIS_CACHE_DB = max(0, min(15, _as_int(os.getenv('REDIS_CACHE_DB', '1'), 1)))
-_CACHE_USE_LOCmem = os.getenv('CACHE_BACKEND', '').lower() == 'locmem'
+REDIS_CACHE_DB = RedisConfig.CACHE_DB
 
-if _CACHE_USE_LOCmem:
+if CacheConfig.USE_LOCMEM:
     CACHES = {
         'default': {
             'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
@@ -533,42 +476,31 @@ else:
     }
 
 # Sesión PanAccess compartida entre workers (requiere Redis)
-PANACCESS_SESSION_USE_REDIS = _env_bool(
-    'PANACCESS_SESSION_USE_REDIS',
-    default=not CELERY_TASK_ALWAYS_EAGER,
+PANACCESS_SESSION_USE_REDIS = PanaccessConfig.session_use_redis(
+    celery_eager=CELERY_TASK_ALWAYS_EAGER,
 )
-PANACCESS_SESSION_TTL_SECONDS = max(
-    300, _as_int(os.getenv('PANACCESS_SESSION_TTL_SECONDS', '1500'), 1500)
-)
+PANACCESS_SESSION_TTL_SECONDS = PanaccessConfig.SESSION_TTL_SECONDS
 
 # Circuit breaker PanAccess (Fase 4)
-PANACCESS_CIRCUIT_BREAKER_ENABLED = _env_bool(
-    'PANACCESS_CIRCUIT_BREAKER_ENABLED',
-    default=not DEBUG,
-)
-PANACCESS_CB_FAILURE_THRESHOLD = max(
-    1, _as_int(os.getenv('PANACCESS_CB_FAILURE_THRESHOLD', '5'), 5)
-)
-PANACCESS_CB_RECOVERY_SECONDS = max(
-    10, _as_int(os.getenv('PANACCESS_CB_RECOVERY_SECONDS', '60'), 60)
-)
+PANACCESS_CIRCUIT_BREAKER_ENABLED = PanaccessConfig.circuit_breaker_enabled(debug=DEBUG)
+PANACCESS_CB_FAILURE_THRESHOLD = PanaccessConfig.CB_FAILURE_THRESHOLD
+PANACCESS_CB_RECOVERY_SECONDS = PanaccessConfig.CB_RECOVERY_SECONDS
 
 # ============================================================================
 # SENTRY (Fase 3) — solo si SENTRY_DSN está definido
 # ============================================================================
-_SENTRY_DSN = os.getenv('SENTRY_DSN', '').strip()
-if _SENTRY_DSN:
+if SentryConfig.DSN:
     import sentry_sdk
     from sentry_sdk.integrations.celery import CeleryIntegration
     from sentry_sdk.integrations.django import DjangoIntegration
     from sentry_sdk.integrations.redis import RedisIntegration
 
     sentry_sdk.init(
-        dsn=_SENTRY_DSN,
+        dsn=SentryConfig.DSN,
         integrations=[DjangoIntegration(), CeleryIntegration(), RedisIntegration()],
-        traces_sample_rate=float(os.getenv('SENTRY_TRACES_SAMPLE_RATE', '0.1')),
+        traces_sample_rate=SentryConfig.TRACES_SAMPLE_RATE,
         send_default_pii=False,
-        environment=os.getenv('SENTRY_ENVIRONMENT', 'production' if not DEBUG else 'development'),
+        environment=SentryConfig.environment(debug=DEBUG),
     )
 
 # ============================================================================

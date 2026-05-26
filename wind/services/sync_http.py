@@ -1,15 +1,15 @@
 """
 Helpers para sync HTTP vía Celery (roadmap #26).
 """
-import os
-
 from rest_framework import status
 from rest_framework.response import Response
+
+from appConfig import FeatureConfig
 
 
 def sync_http_async_enabled() -> bool:
     """POST /wind/sync-* encola Celery por defecto."""
-    return os.getenv("SYNC_HTTP_ASYNC", "true").lower() in ("true", "1", "yes")
+    return FeatureConfig.SYNC_HTTP_ASYNC
 
 
 def parse_sync_limit(request, default: int = 100) -> int:

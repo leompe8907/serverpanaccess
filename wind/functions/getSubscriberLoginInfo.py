@@ -7,11 +7,11 @@ con upsert masivo en BD (evita N× update_or_create secuencial).
 from __future__ import annotations
 
 import logging
-import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from django.db import transaction
 
+from appConfig import PanaccessConfig
 from wind.models import SubscriberLoginInfo, ListOfSubscriber
 from wind.utils.encryption import encrypt_value
 
@@ -35,20 +35,6 @@ _ENTRY_KEYS = (
 )
 
 _resolved_list_login_api: str | None | bool = False  # False = sin resolver aún
-
-
-def _env_int(name: str, default: int) -> int:
-    try:
-        return int(os.getenv(name, str(default)))
-    except (TypeError, ValueError):
-        return default
-
-
-def _env_bool(name: str, default: bool) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in ("1", "true", "yes", "on")
 
 
 def DataBaseEmpty():
@@ -111,7 +97,7 @@ def _resolve_list_login_api() -> str | None:
     if _resolved_list_login_api is not False:
         return _resolved_list_login_api  # type: ignore[return-value]
 
-    if not _env_bool("PANACCESS_LOGIN_INFO_TRY_LIST_API", True):
+    if not PanaccessConfig.LOGIN_INFO_TRY_LIST_API:
         _resolved_list_login_api = None
         return None
 
@@ -305,7 +291,7 @@ def fetch_login_info_for_codes(codes: list[str]) -> dict:
     if not codes:
         return {"mode": "parallel_codes", "total": 0, "success": 0, "errors": 0}
 
-    workers = max(1, min(_env_int("PANACCESS_LOGIN_INFO_CONCURRENCY", 10), 32))
+    workers = PanaccessConfig.LOGIN_INFO_CONCURRENCY
     records: list[dict] = []
     errors = 0
 
@@ -354,7 +340,7 @@ def fetch_login_info_via_parallel(
             "skipped": 0,
         }
 
-    workers = max(1, min(_env_int("PANACCESS_LOGIN_INFO_CONCURRENCY", 10), 32))
+    workers = PanaccessConfig.LOGIN_INFO_CONCURRENCY
     logger.info(
         "Login info paralelo: %s suscriptores, %s workers",
         total,
@@ -380,7 +366,7 @@ def fetch_login_info_via_parallel(
             if done % 200 == 0:
                 logger.info("Login info paralelo: %s/%s", done, total)
 
-    chunk_size = _env_int("PANACCESS_LOGIN_INFO_DB_CHUNK", 200)
+    chunk_size = PanaccessConfig.LOGIN_INFO_DB_CHUNK
     upsert = bulk_upsert_login_records(records, chunk_size=chunk_size)
 
     return {
@@ -419,7 +405,7 @@ def fetch_all_subscribers_login_info(session_id=None, limit=None):
     1. Intenta API listada paginada (1..N páginas).
     2. Si no existe, fetch paralelo por código + upsert masivo.
     """
-    page_limit = _env_int("PANACCESS_LOGIN_INFO_PAGE_LIMIT", 200)
+    page_limit = PanaccessConfig.LOGIN_INFO_PAGE_LIMIT
 
     if _resolve_list_login_api():
         try:

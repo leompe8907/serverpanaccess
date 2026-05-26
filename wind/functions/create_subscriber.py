@@ -9,7 +9,6 @@ Seguridad (roadmap #7): registro público sin JWT, pero con throttling estricto
 y posibilidad de desactivar el endpoint HTTP en prod (flujo social usa bypass interno).
 """
 import logging
-import os
 
 from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.permissions import AllowAny
@@ -27,7 +26,7 @@ from wind.models import SubscriberEmailRegistry
 from wind.utils.email_validation import validate_email_for_registration
 from wind.utils.phone_validation import normalize_phone
 
-from appConfig import PanaccessConfig
+from appConfig import FeatureConfig, PanaccessConfig
 
 PanaccessConfig.validate()
 hcId = PanaccessConfig.HCID
@@ -36,11 +35,7 @@ logger = logging.getLogger(__name__)
 
 
 def _create_subscriber_public_enabled() -> bool:
-    return os.getenv("CREATE_SUBSCRIBER_PUBLIC_ENABLED", "true").lower() in (
-        "true",
-        "1",
-        "yes",
-    )
+    return FeatureConfig.CREATE_SUBSCRIBER_PUBLIC_ENABLED
 
 
 @api_view(['POST'])

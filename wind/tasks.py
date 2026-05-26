@@ -1,5 +1,4 @@
 import logging
-import os
 import time
 
 from celery import shared_task
@@ -18,7 +17,7 @@ from wind.exceptions import (
     PanAccessSessionError,
     PanAccessTimeoutError,
 )
-from appConfig import RedisConfig
+from appConfig import CeleryConfig, RedisConfig
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +81,7 @@ def sync_subscribers_task(self, limit=None):
             }
 
         try:
-            env_limit = _as_int(os.getenv("CELERY_SYNC_LIMIT"), None)
+            env_limit = CeleryConfig.SYNC_LIMIT
             limit = limit or env_limit or 200
 
             logger.info("🔄 [Celery] Iniciando sync_subscribers_task con limit=%s", limit)
@@ -135,7 +134,7 @@ def sync_products_task(self, limit=None):
             }
 
         try:
-            env_limit = _as_int(os.getenv("CELERY_SYNC_LIMIT"), None)
+            env_limit = CeleryConfig.SYNC_LIMIT
             limit = limit or env_limit or 200
             logger.info("[Celery] Iniciando sync_products_task limit=%s", limit)
             result = sync_products(session_id=None, limit=limit)
@@ -186,7 +185,7 @@ def compare_and_update_subscribers_task(self, limit=None):
             }
 
         try:
-            env_limit = _as_int(os.getenv("CELERY_SYNC_LIMIT"), None)
+            env_limit = CeleryConfig.SYNC_LIMIT
             limit = limit or env_limit or 200
 
             logger.info(
@@ -242,7 +241,7 @@ def compare_and_update_smartcards_task(self, limit=None):
             }
 
         try:
-            env_limit = _as_int(os.getenv("CELERY_SYNC_LIMIT"), None)
+            env_limit = CeleryConfig.SYNC_LIMIT
             limit = limit or env_limit or 200
 
             logger.info(
@@ -298,7 +297,7 @@ def sync_smartcards_task(self, limit=None):
             }
 
         try:
-            env_limit = _as_int(os.getenv("CELERY_SYNC_LIMIT"), None)
+            env_limit = CeleryConfig.SYNC_LIMIT
             limit = limit or env_limit or 200
 
             logger.info("[Celery] Iniciando sync_smartcards_task limit=%s", limit)
@@ -332,7 +331,7 @@ def full_sync_task(self, limit=None):
     Sincronización global correctiva (programar en horario de bajo tráfico, ej. medianoche).
     """
     lock_key = "celery:lock:full_sync_task"
-    lock_timeout = int(os.getenv("CELERY_FULL_SYNC_TIME_LIMIT", "3600"))
+    lock_timeout = CeleryConfig.FULL_SYNC_TIME_LIMIT
 
     with RedisConfig.task_lock(lock_key, timeout=lock_timeout) as acquired:
         if not acquired:
@@ -341,7 +340,7 @@ def full_sync_task(self, limit=None):
 
         RedisConfig.set_full_sync_in_progress(timeout=lock_timeout)
         try:
-            env_limit = _as_int(os.getenv("CELERY_SYNC_LIMIT"), None)
+            env_limit = CeleryConfig.SYNC_LIMIT
             limit = limit or env_limit or 200
             started = time.monotonic()
             logger.info("[Celery] Iniciando full_sync_task con limit=%s", limit)

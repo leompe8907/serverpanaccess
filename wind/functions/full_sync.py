@@ -10,13 +10,12 @@ Objetivo: con una sola llamada, dejar consistentes las tablas locales con PanAcc
 
 import logging
 
-import os
-
 from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 from rest_framework import status
 
+from appConfig import CeleryConfig, FeatureConfig
 from wind.throttles import SyncAdminThrottle
 from wind.models import ListOfProducts, SubscriberLoginInfo
 from wind.functions.getSubscriber import compare_and_update_all_subscribers
@@ -117,7 +116,7 @@ def run_full_sync(limit: int = 100) -> dict:
 
 
 def _full_sync_http_enabled() -> bool:
-    return os.getenv("FULL_SYNC_HTTP_ENABLED", "false").lower() in ("true", "1", "yes")
+    return FeatureConfig.FULL_SYNC_HTTP_ENABLED
 
 
 @api_view(["GET", "POST"])
@@ -146,8 +145,8 @@ def full_sync_view(request):
             {
                 "success": True,
                 "message": "Use POST para encolar la sincronización global.",
-                "beat_hour": os.getenv("CELERY_FULL_SYNC_HOUR", "0"),
-                "beat_minute": os.getenv("CELERY_FULL_SYNC_MINUTE", "0"),
+                "beat_hour": CeleryConfig.FULL_SYNC_HOUR,
+                "beat_minute": CeleryConfig.FULL_SYNC_MINUTE,
             },
             status=status.HTTP_200_OK,
         )

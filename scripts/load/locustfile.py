@@ -8,9 +8,9 @@ Uso:
 Variables:
   LOCUST_USERNAME / LOCUST_PASSWORD — credenciales portal PanAccess
 """
-import os
-
 from locust import HttpUser, between, task
+
+from appConfig import LocustConfig
 
 
 class PortalUser(HttpUser):
@@ -18,8 +18,8 @@ class PortalUser(HttpUser):
     token = None
 
     def on_start(self):
-        username = os.getenv("LOCUST_USERNAME", "")
-        password = os.getenv("LOCUST_PASSWORD", "")
+        username = LocustConfig.USERNAME
+        password = LocustConfig.PASSWORD
         if not username or not password:
             return
         res = self.client.post(

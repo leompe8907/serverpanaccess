@@ -2,13 +2,21 @@
 Comprueba configuración lista para producción (roadmap #3–#4, #8–#9).
 Ejecuta ``manage.py check --deploy`` y validaciones adicionales del .env.
 """
-import os
-
 from django.conf import settings
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
 
-from appConfig import DjangoConfig, PanaccessConfig, RedisConfig, SocialConfig
+from appConfig import (
+    CeleryConfig,
+    DatabaseConfig,
+    DjangoConfig,
+    FeatureConfig,
+    PanaccessConfig,
+    RedisConfig,
+    SentryConfig,
+    SocialConfig,
+    StaticConfig,
+)
 
 
 class Command(BaseCommand):
@@ -73,16 +81,8 @@ class Command(BaseCommand):
                     "CORS usa http:// en producción; preferir https:// si el front es público"
                 )
 
-        full_sync_http = os.getenv("FULL_SYNC_HTTP_ENABLED", "false").lower() in (
-            "true",
-            "1",
-            "yes",
-        )
-        celery_full_sync = os.getenv("CELERY_FULL_SYNC_ENABLED", "true").lower() in (
-            "true",
-            "1",
-            "yes",
-        )
+        full_sync_http = FeatureConfig.FULL_SYNC_HTTP_ENABLED
+        celery_full_sync = CeleryConfig.FULL_SYNC_ENABLED
         self.stdout.write(f"FULL_SYNC_HTTP_ENABLED: {full_sync_http}")
         self.stdout.write(f"CELERY_FULL_SYNC_ENABLED: {celery_full_sync}")
 
@@ -96,11 +96,11 @@ class Command(BaseCommand):
             f"SOCIAL_LOGIN_PROVIDERS: {', '.join(social_providers) or '(ninguno)'}"
         )
 
-        sentry_dsn = os.getenv("SENTRY_DSN", "").strip()
+        sentry_dsn = SentryConfig.DSN
         self.stdout.write(f"SENTRY_DSN: {'configurado' if sentry_dsn else 'no (opcional)'}")
 
-        replica_host = os.getenv("DB_REPLICA_HOST", "").strip()
-        cdn = os.getenv("CDN_STATIC_URL", "").strip()
+        replica_host = DatabaseConfig.REPLICA_HOST
+        cdn = StaticConfig.CDN_URL
         self.stdout.write(f"DB_REPLICA_HOST: {replica_host or '(no — solo primary)'}")
         self.stdout.write(f"CDN_STATIC_URL: {cdn or '(no — /static/ local)'}")
         if strict and not settings.DEBUG and not sentry_dsn:
@@ -135,7 +135,7 @@ class Command(BaseCommand):
                     "PANACCESS_SESSION_USE_REDIS=false en producción con varios workers Gunicorn. "
                     "Use true y Redis activo (roadmap #9)."
                 )
-            elif os.getenv("PANACCESS_SESSION_USE_REDIS") is None:
+            elif PanaccessConfig.SESSION_USE_REDIS_RAW is None:
                 warnings.append(
                     "Defina PANACCESS_SESSION_USE_REDIS=true explícitamente en .env (no solo el default)."
                 )
@@ -154,11 +154,7 @@ class Command(BaseCommand):
                 errors.append(
                     "PRODUCTION_HTTPS=false en producción. Use true detrás de nginx con TLS (roadmap #23)."
                 )
-            sync_async = os.getenv("SYNC_HTTP_ASYNC", "true").lower() in (
-                "true",
-                "1",
-                "yes",
-            )
+            sync_async = FeatureConfig.SYNC_HTTP_ASYNC
             self.stdout.write(f"SYNC_HTTP_ASYNC: {sync_async}")
             if not sync_async:
                 warnings.append(

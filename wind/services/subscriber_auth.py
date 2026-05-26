@@ -2,9 +2,10 @@
 Autenticación de abonados: credenciales PanAccess (login1/login2/código) y usuarios Django.
 """
 import logging
-import os
 
 from django.contrib.auth import authenticate, get_user_model
+
+from appConfig import PanaccessConfig
 
 from wind.functions.getSubscriber import CallListExtendedSubscribers
 from wind.functions.getSubscriberLoginInfo import fetch_login_info_for_subscriber
@@ -90,7 +91,7 @@ def _discover_login_by_login1(login_int: int, password: str) -> SubscriberLoginI
     Busca en PanAccess el suscriptor cuyo login1 coincide (cuando no está en BD local).
     Limitado por PANACCESS_LOGIN_DISCOVERY_MAX_CALLS para no saturar la API.
     """
-    max_calls = int(os.getenv("PANACCESS_LOGIN_DISCOVERY_MAX_CALLS", "40"))
+    max_calls = PanaccessConfig.LOGIN_DISCOVERY_MAX_CALLS
     if max_calls <= 0:
         return None
 

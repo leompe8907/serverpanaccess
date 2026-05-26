@@ -4,10 +4,11 @@ Funciones para obtener y sincronizar smartcards desde PanAccess.
 from __future__ import annotations
 
 import logging
-import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from django.db import transaction
+
+from appConfig import PanaccessConfig
 from wind.models import ListOfSmartcards
 from wind.serializers import ListOfSmartcardsSerializer
 
@@ -15,13 +16,6 @@ from wind.services import get_panaccess
 from wind.exceptions import PanAccessException
 
 logger = logging.getLogger(__name__)
-
-
-def _env_int(name: str, default: int) -> int:
-    try:
-        return int(os.getenv(name, str(default)))
-    except (TypeError, ValueError):
-        return default
 
 
 def DataBaseEmpty():
@@ -400,8 +394,8 @@ def fetch_subscriber_smartcards_from_panaccess(
     fetched_sns: set[str] = set()
     entries: list[dict] = []
 
-    max_pages_subscriber = _env_int("PANACCESS_SMARTCARD_SUBSCRIBER_MAX_PAGES", 5)
-    page_limit = _env_int("PANACCESS_SMARTCARD_PAGE_LIMIT", 100)
+    max_pages_subscriber = PanaccessConfig.SMARTCARD_SUBSCRIBER_MAX_PAGES
+    page_limit = PanaccessConfig.SMARTCARD_PAGE_LIMIT
 
     if code:
         offset = 0
@@ -446,7 +440,7 @@ def fetch_subscriber_smartcards_from_panaccess(
     if missing_sns:
         workers = max(
             1,
-            min(_env_int("PANACCESS_SMARTCARD_SN_CONCURRENCY", 5), 16),
+            PanaccessConfig.SMARTCARD_SN_CONCURRENCY,
         )
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = {
@@ -462,17 +456,13 @@ def fetch_subscriber_smartcards_from_panaccess(
                     if row.get("sn"):
                         fetched_sns.add(str(row["sn"]).strip())
 
-    use_global = os.getenv("PANACCESS_SMARTCARD_GLOBAL_FALLBACK", "").lower() in (
-        "true",
-        "1",
-        "yes",
-    )
+    use_global = PanaccessConfig.SMARTCARD_GLOBAL_FALLBACK
     if not profile_mode:
         use_global = True
 
     global_saved = 0
     if use_global and code and not entries:
-        max_pages = _env_int("PANACCESS_SMARTCARD_SYNC_MAX_PAGES", "15")
+        max_pages = PanaccessConfig.SMARTCARD_SYNC_MAX_PAGES
         offset = 0
         for _ in range(max_pages):
             try:
