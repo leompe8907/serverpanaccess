@@ -89,7 +89,6 @@ INSTALLED_APPS = [
     'allauth.socialaccount',
     'allauth.socialaccount.providers.facebook',
     'allauth.socialaccount.providers.google',
-    'allauth.socialaccount.providers.apple',
     'rest_framework.authtoken',
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist',
@@ -176,7 +175,9 @@ CORS_ALLOW_HEADERS = [
 # ============================================================================
 REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.DjangoModelPermissionsOrAnonReadOnly',
+        # Endurecido: todo endpoint debe ser explícito si es público.
+        # Usar AllowAny solo donde corresponda (registro/login público, health si fuese DRF, etc.)
+        'rest_framework.permissions.IsAuthenticated',
     ],
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
@@ -203,14 +204,28 @@ from datetime import timedelta
 
 REST_AUTH = {
     'USE_JWT': True,
-    'JWT_AUTH_COOKIE': 'wind-auth',
-    'JWT_AUTH_REFRESH_COOKIE': 'wind-refresh-token',
     'USER_DETAILS_SERIALIZER': 'wind.serializers.JWTUserDetailsSerializer',
     'LOGIN_SERIALIZER': 'wind.auth_serializers.PanAccessLoginSerializer',
 }
 
+# Preferimos Authorization: Bearer. Cookies JWT solo si el front lo requiere explícitamente.
+_JWT_USE_COOKIES = os.getenv("JWT_USE_COOKIES", "false").lower() in ("true", "1", "yes")
+if _JWT_USE_COOKIES:
+    REST_AUTH.update(
+        {
+            "JWT_AUTH_COOKIE": os.getenv("JWT_AUTH_COOKIE", "wind-auth"),
+            "JWT_AUTH_REFRESH_COOKIE": os.getenv("JWT_AUTH_REFRESH_COOKIE", "wind-refresh-token"),
+        }
+    )
+
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
+    # Prod: 5–15 min recomendado. Dev: puede ser más largo.
+    'ACCESS_TOKEN_LIFETIME': timedelta(
+        minutes=max(
+            1,
+            int(os.getenv("JWT_ACCESS_MINUTES", "60" if DEBUG else "15")),
+        )
+    ),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
@@ -224,10 +239,43 @@ SITE_ID = 1
 # Django 6 / django-allauth: preferir ACCOUNT_LOGIN_METHODS y ACCOUNT_SIGNUP_FIELDS.
 ACCOUNT_LOGIN_METHODS = {'email'}
 ACCOUNT_SIGNUP_FIELDS = ['email*', 'password1*', 'password2*']
-# Para flujos headless/mobile (REST) evitamos el envío de correos de verificación
-# durante el login social. En desarrollo no hay SMTP configurado y esto provoca
-# un 500 al intentar enviar confirmaciones.
-ACCOUNT_EMAIL_VERIFICATION = 'none'
+
+# ============================================================================
+# EMAIL / ALLAUTH: verificación de email (prod) vs dev
+# ============================================================================
+# Default:
+# - Dev (DEBUG=true): none (evita fallos si no hay SMTP)
+# - Prod (DEBUG=false): mandatory (recomendado si hay registro por contraseña)
+_ACCOUNT_EMAIL_VERIFICATION = os.getenv(
+    "ACCOUNT_EMAIL_VERIFICATION",
+    "none" if DEBUG else "mandatory",
+).strip().lower()
+if _ACCOUNT_EMAIL_VERIFICATION not in ("none", "optional", "mandatory"):
+    raise EnvironmentError(
+        "ACCOUNT_EMAIL_VERIFICATION inválido. Use: none|optional|mandatory"
+    )
+ACCOUNT_EMAIL_VERIFICATION = _ACCOUNT_EMAIL_VERIFICATION
+
+# Email backend:
+# - Dev: console backend por defecto
+# - Prod: SMTP si EMAIL_HOST está definido; si no, console (pero check_deploy --strict
+#         puede exigir SMTP si ACCOUNT_EMAIL_VERIFICATION != none).
+_EMAIL_BACKEND = os.getenv("EMAIL_BACKEND", "").strip()
+if _EMAIL_BACKEND:
+    EMAIL_BACKEND = _EMAIL_BACKEND
+else:
+    EMAIL_BACKEND = (
+        "django.core.mail.backends.smtp.EmailBackend"
+        if (not DEBUG and os.getenv("EMAIL_HOST", "").strip())
+        else "django.core.mail.backends.console.EmailBackend"
+    )
+
+EMAIL_HOST = os.getenv("EMAIL_HOST", "").strip()
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "").strip()
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "").strip()
+EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "true").lower() in ("true", "1", "yes")
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "").strip()
 
 # Adaptador perzonalizado para conectar Google con PanAccess
 SOCIALACCOUNT_ADAPTER = 'wind.adapters.PanAccessSocialAccountAdapter'

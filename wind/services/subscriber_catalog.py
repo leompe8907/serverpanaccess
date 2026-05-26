@@ -266,6 +266,39 @@ def _enrich_products_by_ids(product_ids: list[int]) -> list[dict]:
     return results
 
 
+def _enrich_products_by_ids_from_catalog(product_ids: list[int], catalog: dict[int, ListOfProducts]) -> list[dict]:
+    """
+    Igual que `_enrich_products_by_ids`, pero usando un catálogo ya precargado
+    para evitar N+1 queries cuando se serializan muchas smartcards.
+    """
+    if not product_ids:
+        return []
+    results: list[dict] = []
+    for pid in product_ids:
+        prod = catalog.get(pid)
+        if prod:
+            results.append(
+                {
+                    "productId": prod.productId,
+                    "name": prod.name,
+                    "description": prod.description,
+                    "packages": prod.packages,
+                    "optionalPackages": prod.optionalPackages,
+                }
+            )
+        else:
+            results.append(
+                {
+                    "productId": pid,
+                    "name": None,
+                    "description": None,
+                    "packages": None,
+                    "optionalPackages": None,
+                }
+            )
+    return results
+
+
 def _upsert_smartcard_entry(entry: dict) -> None:
     sn = entry.get("sn")
     if not sn:
@@ -402,10 +435,27 @@ def build_subscriber_products_payload(subscriber_code: str, *, refresh_if_empty:
         )
         smartcards_qs = get_smartcards_for_subscriber(subscriber_code)
 
-    smartcards_payload = []
-    for card in smartcards_qs:
+    cards = list(smartcards_qs)
+    # Precargar catálogo de productos (evita query por smartcard)
+    all_product_ids: set[int] = set()
+    for card in cards:
+        all_product_ids.update(_normalize_product_ids(card.products))
+
+    catalog: dict[int, ListOfProducts] = {}
+    if all_product_ids:
+        catalog = {
+            p.productId: p
+            for p in ListOfProducts.objects.filter(productId__in=all_product_ids, deleted=False)
+        }
+
+    smartcards_payload: list[dict] = []
+    for card in cards:
         product_ids = _normalize_product_ids(card.products)
-        products = _resolve_smartcard_products(card.products)
+        products = (
+            _enrich_products_by_ids_from_catalog(product_ids, catalog)
+            if product_ids
+            else _resolve_smartcard_products(card.products)
+        )
         smartcards_payload.append(
             {
                 "sn": card.sn,

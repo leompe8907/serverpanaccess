@@ -44,7 +44,7 @@ class PanAccessSingleton:
     ALERT_AFTER_ATTEMPTS = 3  # Enviar alerta después de X intentos
     
     # Configuración de validación periódica
-    VALIDATION_INTERVAL = 900  # Validar cada 5 minutos (300 segundos)
+    VALIDATION_INTERVAL = 900  # Validar cada 15 minutos (900 segundos)
     
     def __new__(cls):
         """
@@ -147,11 +147,19 @@ class PanAccessSingleton:
             error_message: Mensaje de error
         """
         alert_message = (
-            f"🚨 ALERTA: PanAccess login ha fallado {attempt} veces. "
+            f"ALERTA: PanAccess login ha fallado {attempt} veces. "
             f"Último error: {error_message}. "
             f"El sistema seguirá intentando hasta {self.MAX_RETRY_ATTEMPTS} intentos."
         )
         logger.error(alert_message)
+
+        # Si Sentry está configurado (SENTRY_DSN), también enviamos un evento para alertas.
+        try:
+            import sentry_sdk
+
+            sentry_sdk.capture_message(alert_message, level="error")
+        except Exception:
+            pass
         
         # TODO: Aquí puedes agregar:
         # - Envío de email

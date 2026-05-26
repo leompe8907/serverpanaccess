@@ -170,6 +170,22 @@ class Command(BaseCommand):
                     "SYNC_ADMIN_IP_ALLOWLIST vacío: configure IPs o restrinja sync en nginx (roadmap #5)"
                 )
 
+        # Email verification (allauth) en producción
+        email_verification = getattr(settings, "ACCOUNT_EMAIL_VERIFICATION", "none")
+        self.stdout.write(f"ACCOUNT_EMAIL_VERIFICATION: {email_verification}")
+        if strict and not settings.DEBUG and email_verification != "none":
+            email_host = getattr(settings, "EMAIL_HOST", "") or ""
+            default_from = getattr(settings, "DEFAULT_FROM_EMAIL", "") or ""
+            if not email_host.strip():
+                errors.append(
+                    "ACCOUNT_EMAIL_VERIFICATION != none pero EMAIL_HOST está vacío. "
+                    "Configure SMTP (SendGrid/SES/Mailgun) o use ACCOUNT_EMAIL_VERIFICATION=none solo en dev."
+                )
+            if not default_from.strip():
+                errors.append(
+                    "DEFAULT_FROM_EMAIL vacío en producción. Defina un remitente válido para emails de verificación."
+                )
+
         for w in warnings:
             self.stdout.write(self.style.WARNING(f"AVISO: {w}"))
 

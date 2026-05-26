@@ -56,6 +56,20 @@ CELERY_SMARTCARD_SYNC_MINUTES=10
 CELERY_SYNC_LIMIT=200
 ```
 
+### Ajuste según volumen (tuning)
+`CELERY_SYNC_LIMIT` define cuántos registros procesa **por ciclo** en compare. Si PanAccess tiene decenas de miles:
+
+- **Síntoma**: la BD local queda atrasada (lag) aunque Beat corre sin errores.
+- **Acciones típicas**:
+  - Subir `CELERY_SYNC_LIMIT` (máximo efectivo vía HTTP: 1000).
+  - Bajar `CELERY_SYNC_MINUTES` / `CELERY_SMARTCARD_SYNC_MINUTES` (más frecuencia).
+  - Subir límites de tiempo si las tareas expiran:
+    - `CELERY_TASK_SOFT_TIME_LIMIT` (default 540s)
+    - `CELERY_TASK_TIME_LIMIT` (default 600s)
+    - Para full-sync: `CELERY_FULL_SYNC_SOFT_TIME_LIMIT` / `CELERY_FULL_SYNC_TIME_LIMIT`
+
+Regla práctica: subir el límite **de a poco** y monitorear `panaccess.log`, duración de tareas y tamaño de cola.
+
 | Tarea Beat | Task Celery | Función |
 |------------|-------------|---------|
 | `compare-and-update-subscribers` | `compare_and_update_subscribers_task` | `compare_and_update_all_subscribers()` — crea, actualiza, **elimina** locales que ya no están en PanAccess |

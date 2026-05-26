@@ -11,7 +11,13 @@ from wind.functions.getSubscriber import (
 from wind.functions.getProducts import sync_products
 from wind.functions.getSmartcard import compare_and_update_all_smartcards, sync_smartcards
 from wind.functions.full_sync import run_full_sync
-from wind.exceptions import PanAccessException
+from wind.exceptions import (
+    PanAccessConnectionError,
+    PanAccessException,
+    PanAccessRateLimitError,
+    PanAccessSessionError,
+    PanAccessTimeoutError,
+)
 from appConfig import RedisConfig
 
 logger = logging.getLogger(__name__)
@@ -38,7 +44,14 @@ def _skipped_during_full_sync(task_name: str) -> dict:
 
 @shared_task(
     bind=True,
-    autoretry_for=(PanAccessException, ConnectionError),
+    # Reintentar solo errores transitorios (evita reintentos inútiles por permisos/config).
+    autoretry_for=(
+        PanAccessConnectionError,
+        PanAccessTimeoutError,
+        PanAccessSessionError,
+        PanAccessRateLimitError,
+        ConnectionError,
+    ),
     retry_backoff=True,
     retry_backoff_max=600,
     retry_jitter=True,
@@ -90,7 +103,13 @@ def sync_subscribers_task(self, limit=None):
 
 @shared_task(
     bind=True,
-    autoretry_for=(PanAccessException, ConnectionError),
+    autoretry_for=(
+        PanAccessConnectionError,
+        PanAccessTimeoutError,
+        PanAccessSessionError,
+        PanAccessRateLimitError,
+        ConnectionError,
+    ),
     retry_backoff=True,
     retry_backoff_max=600,
     retry_jitter=True,
@@ -132,7 +151,13 @@ def sync_products_task(self, limit=None):
 
 @shared_task(
     bind=True,
-    autoretry_for=(PanAccessException, ConnectionError),
+    autoretry_for=(
+        PanAccessConnectionError,
+        PanAccessTimeoutError,
+        PanAccessSessionError,
+        PanAccessRateLimitError,
+        ConnectionError,
+    ),
     retry_backoff=True,
     retry_backoff_max=600,
     retry_jitter=True,
@@ -182,7 +207,13 @@ def compare_and_update_subscribers_task(self, limit=None):
 
 @shared_task(
     bind=True,
-    autoretry_for=(PanAccessException, ConnectionError),
+    autoretry_for=(
+        PanAccessConnectionError,
+        PanAccessTimeoutError,
+        PanAccessSessionError,
+        PanAccessRateLimitError,
+        ConnectionError,
+    ),
     retry_backoff=True,
     retry_backoff_max=600,
     retry_jitter=True,
@@ -232,7 +263,13 @@ def compare_and_update_smartcards_task(self, limit=None):
 
 @shared_task(
     bind=True,
-    autoretry_for=(PanAccessException, ConnectionError),
+    autoretry_for=(
+        PanAccessConnectionError,
+        PanAccessTimeoutError,
+        PanAccessSessionError,
+        PanAccessRateLimitError,
+        ConnectionError,
+    ),
     retry_backoff=True,
     retry_backoff_max=600,
     retry_jitter=True,
@@ -278,7 +315,13 @@ def sync_smartcards_task(self, limit=None):
 
 @shared_task(
     bind=True,
-    autoretry_for=(PanAccessException, ConnectionError),
+    autoretry_for=(
+        PanAccessConnectionError,
+        PanAccessTimeoutError,
+        PanAccessSessionError,
+        PanAccessRateLimitError,
+        ConnectionError,
+    ),
     retry_backoff=True,
     retry_backoff_max=600,
     retry_jitter=True,
