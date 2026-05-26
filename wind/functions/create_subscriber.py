@@ -20,7 +20,7 @@ from django.core.signing import TimestampSigner
 
 from wind.serializers import CreateSubscriberSerializer
 from wind.services import get_panaccess
-from wind.exceptions import PanAccessException
+from wind.exceptions import PanAccessException, PanAccessAPIError
 from wind.utils.subscriber_code_generator import generate_unique_subscriber_code, validate_subscriber_code_uniqueness
 from wind.models import SubscriberEmailRegistry
 from wind.utils.email_validation import validate_email_for_registration
@@ -32,6 +32,181 @@ PanaccessConfig.validate()
 hcId = PanaccessConfig.HCID
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_contact_id(answer) -> int | None:
+    """Extrae contactId de la respuesta de addContactToSubscriber."""
+    if answer is None:
+        return None
+    if isinstance(answer, bool):
+        return None
+    if isinstance(answer, int):
+        return answer
+    if isinstance(answer, str):
+        stripped = answer.strip()
+        if stripped.isdigit():
+            return int(stripped)
+        return None
+    if isinstance(answer, dict):
+        for key in ("contactId", "contact_id", "id", "contactID"):
+            value = answer.get(key)
+            if value is None:
+                continue
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                continue
+    return None
+
+
+def _contact_value_matches(item: dict, target: str) -> bool:
+    for key in ("contact", "email", "value", "address"):
+        raw = item.get(key)
+        if isinstance(raw, str) and raw.lower().strip() == target:
+            return True
+    return False
+
+
+def _find_email_contact_id_in_subscriber(subscriber_row: dict | None, email_normalized: str) -> int | None:
+    """Busca contactId del email en la fila devuelta por getSubscriber / getExtendedSubscriber."""
+    if not subscriber_row:
+        return None
+
+    target = email_normalized.lower().strip()
+    emails = subscriber_row.get("emails")
+    if not emails:
+        return None
+
+    items = emails if isinstance(emails, list) else [emails]
+    for item in items:
+        if isinstance(item, dict) and _contact_value_matches(item, target):
+            contact_id = _parse_contact_id(item)
+            if contact_id is not None:
+                return contact_id
+    return None
+
+
+def _resolve_email_contact_id(panaccess, subscriber_code: str, add_contact_response: dict, email_normalized: str) -> int | None:
+    """Obtiene contactId desde addContact o, en su defecto, consultando el suscriptor en PanAccess."""
+    contact_id = _parse_contact_id((add_contact_response or {}).get("answer"))
+    if contact_id is not None:
+        logger.info(
+            "[ValidateContact] contactId=%s obtenido de addContactToSubscriber (subscriber=%s)",
+            contact_id,
+            subscriber_code,
+        )
+        return contact_id
+
+    logger.warning(
+        "[ValidateContact] addContactToSubscriber no devolvió contactId utilizable "
+        "(subscriber=%s, email=%s, answer=%r). Consultando suscriptor en PanAccess...",
+        subscriber_code,
+        email_normalized,
+        (add_contact_response or {}).get("answer"),
+    )
+    try:
+        from wind.functions.getSubscriber import CallGetSubscriber
+
+        row = CallGetSubscriber(subscriber_code=subscriber_code)
+        contact_id = _find_email_contact_id_in_subscriber(row, email_normalized)
+        if contact_id is not None:
+            logger.info(
+                "[ValidateContact] contactId=%s obtenido vía getSubscriber (subscriber=%s)",
+                contact_id,
+                subscriber_code,
+            )
+        else:
+            logger.error(
+                "[ValidateContact] No se encontró contactId del email en getSubscriber "
+                "(subscriber=%s, email=%s, emails=%r)",
+                subscriber_code,
+                email_normalized,
+                row.get("emails") if row else None,
+            )
+        return contact_id
+    except Exception as exc:
+        logger.error(
+            "[ValidateContact] Error resolviendo contactId vía getSubscriber "
+            "(subscriber=%s, email=%s): %s",
+            subscriber_code,
+            email_normalized,
+            exc,
+            exc_info=True,
+        )
+        return None
+
+
+def _validate_email_contact_of_subscriber(
+    panaccess,
+    subscriber_code: str,
+    contact_id: int,
+    email_normalized: str,
+) -> tuple[bool, str | None]:
+    """
+    Marca el email como validado y opcionalmente como login alternativo (asLogin=True).
+    Retorna (ok, mensaje_error).
+    """
+    validate_params = {
+        "code": subscriber_code,
+        "contactId": contact_id,
+        "asLogin": True,
+    }
+    logger.info(
+        "[ValidateContact] Llamando validateContactOfSubscriber "
+        "(subscriber=%s, contactId=%s, email=%s, asLogin=True)",
+        subscriber_code,
+        contact_id,
+        email_normalized,
+    )
+    try:
+        response = panaccess.call("validateContactOfSubscriber", validate_params)
+        logger.info(
+            "[ValidateContact] Email validado correctamente "
+            "(subscriber=%s, contactId=%s, answer=%r)",
+            subscriber_code,
+            contact_id,
+            response.get("answer"),
+        )
+        return True, None
+    except PanAccessAPIError as exc:
+        logger.error(
+            "[ValidateContact] FALLÓ validateContactOfSubscriber | "
+            "subscriber=%s contactId=%s email=%s asLogin=True | "
+            "error=%s | error_code=%s | status_code=%s | params=%s",
+            subscriber_code,
+            contact_id,
+            email_normalized,
+            exc,
+            getattr(exc, "error_code", None),
+            getattr(exc, "status_code", None),
+            validate_params,
+            exc_info=True,
+        )
+        return False, str(exc)
+    except PanAccessException as exc:
+        logger.error(
+            "[ValidateContact] FALLÓ validateContactOfSubscriber (PanAccess) | "
+            "subscriber=%s contactId=%s email=%s | error=%s | params=%s",
+            subscriber_code,
+            contact_id,
+            email_normalized,
+            exc,
+            validate_params,
+            exc_info=True,
+        )
+        return False, str(exc)
+    except Exception as exc:
+        logger.error(
+            "[ValidateContact] FALLÓ validateContactOfSubscriber (inesperado) | "
+            "subscriber=%s contactId=%s email=%s | error=%s | params=%s",
+            subscriber_code,
+            contact_id,
+            email_normalized,
+            exc,
+            validate_params,
+            exc_info=True,
+        )
+        return False, str(exc)
 
 
 def _create_subscriber_public_enabled() -> bool:
@@ -377,8 +552,11 @@ def create_subscriber_view(request):
         # Agregar contactos si se proporcionaron
         contacts_added = []
         contacts_errors = []
+        email_validated = False
+        email_validation_error = None
         
         # Agregar email como contacto
+        email_contact_response = None
         try:
             logger.info(f"Agregando email {email_normalized} al suscriptor {subscriber_code}")
             contact_params = {
@@ -387,13 +565,38 @@ def create_subscriber_view(request):
                 'isBusiness': False,
                 'contact': email_normalized
             }
-            contact_response = panaccess.call('addContactToSubscriber', contact_params)
+            email_contact_response = panaccess.call('addContactToSubscriber', contact_params)
             
-            if contact_response.get('success'):
+            if email_contact_response.get('success'):
                 contacts_added.append({'type': 'email', 'value': email_normalized})
                 logger.info(f"Email agregado exitosamente")
+
+                contact_id = _resolve_email_contact_id(
+                    panaccess,
+                    subscriber_code,
+                    email_contact_response,
+                    email_normalized,
+                )
+                if contact_id is not None:
+                    email_validated, email_validation_error = _validate_email_contact_of_subscriber(
+                        panaccess,
+                        subscriber_code,
+                        contact_id,
+                        email_normalized,
+                    )
+                else:
+                    email_validation_error = (
+                        "No se pudo obtener contactId del email tras addContactToSubscriber"
+                    )
+                    logger.error(
+                        "[ValidateContact] %s (subscriber=%s, email=%s, addContact_answer=%r)",
+                        email_validation_error,
+                        subscriber_code,
+                        email_normalized,
+                        email_contact_response.get("answer"),
+                    )
             else:
-                error_msg = contact_response.get('errorMessage', 'Error desconocido')
+                error_msg = email_contact_response.get('errorMessage', 'Error desconocido')
                 contacts_errors.append({'type': 'email', 'error': error_msg})
                 logger.error(f"Error al agregar email: {error_msg}")
         except Exception as e:
@@ -451,6 +654,12 @@ def create_subscriber_view(request):
             # Si hay errores en contactos, cambiar el mensaje pero mantener success=True
             # porque el suscriptor se creó correctamente
             response_data['message'] += '. Algunos contactos no pudieron agregarse.'
+
+        response_data['email_validated'] = email_validated
+        if email_validation_error:
+            response_data['email_validation_error'] = email_validation_error
+            if email_validated is False and 'email' in {c.get('type') for c in contacts_added}:
+                response_data['message'] += '. El email no pudo validarse en PanAccess (ver logs ValidateContact).'
         
         # Llamar a addLicenseBlockToSubscriber
         license_block_success = False
