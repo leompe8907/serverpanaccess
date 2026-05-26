@@ -150,10 +150,11 @@ def _validate_email_contact_of_subscriber(
         "code": subscriber_code,
         "contactId": contact_id,
         "asLogin": True,
+        "overrideContact": True,
     }
     logger.info(
         "[ValidateContact] Llamando validateContactOfSubscriber "
-        "(subscriber=%s, contactId=%s, email=%s, asLogin=True)",
+        "(subscriber=%s, contactId=%s, email=%s, asLogin=True, overrideContact=True)",
         subscriber_code,
         contact_id,
         email_normalized,
@@ -171,7 +172,7 @@ def _validate_email_contact_of_subscriber(
     except PanAccessAPIError as exc:
         logger.error(
             "[ValidateContact] FALLÓ validateContactOfSubscriber | "
-            "subscriber=%s contactId=%s email=%s asLogin=True | "
+            "subscriber=%s contactId=%s email=%s asLogin=True, overrideContact=True | "
             "error=%s | error_code=%s | status_code=%s | params=%s",
             subscriber_code,
             contact_id,
@@ -186,7 +187,7 @@ def _validate_email_contact_of_subscriber(
     except PanAccessException as exc:
         logger.error(
             "[ValidateContact] FALLÓ validateContactOfSubscriber (PanAccess) | "
-            "subscriber=%s contactId=%s email=%s | error=%s | params=%s",
+            "subscriber=%s contactId=%s email=%s asLogin=True, overrideContact=True | error=%s | params=%s",
             subscriber_code,
             contact_id,
             email_normalized,
@@ -198,7 +199,7 @@ def _validate_email_contact_of_subscriber(
     except Exception as exc:
         logger.error(
             "[ValidateContact] FALLÓ validateContactOfSubscriber (inesperado) | "
-            "subscriber=%s contactId=%s email=%s | error=%s | params=%s",
+            "subscriber=%s contactId=%s email=%s asLogin=True, overrideContact=True | error=%s | params=%s",
             subscriber_code,
             contact_id,
             email_normalized,
