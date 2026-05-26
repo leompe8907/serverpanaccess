@@ -359,15 +359,10 @@ python3 -m venv env
 source env/bin/activate
 pip install --upgrade pip wheel
 pip install -r requirements.txt
+pip install --force-reinstall 'psycopg[c]>=3.2'
 ```
 
-**Producción Ubuntu:** instalar además driver PostgreSQL compilado:
-
-```bash
-pip install 'psycopg>=3.2' setproctitle
-```
-
-Opcional: quitar dependencia binary editando `requirements.txt` antes del deploy (`psycopg[binary]` → `psycopg`).
+Ver [PYTHON_DEPENDENCIAS.md](docs/PYTHON_DEPENDENCIAS.md) (Django 5.2.14 LTS, `requirements-dev.txt` para Locust).
 
 **Verificar Django instalado:**
 

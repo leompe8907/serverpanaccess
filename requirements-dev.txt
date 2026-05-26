@@ -1,0 +1,4 @@
+# Dependencias solo para desarrollo / staging (no instalar en prod)
+-r requirements.txt
+
+locust>=2.32
