@@ -146,36 +146,51 @@ def _validate_email_contact_of_subscriber(
     Marca el email como validado y opcionalmente como login alternativo (asLogin=True).
     Retorna (ok, mensaje_error).
     """
+    # PanAccess (según WSDL) define xsd:boolean; en algunos entornos el modo "function"
+    # es sensible a que se envíe como 1/0 (estilo SOAP) en vez de True/False.
     validate_params = {
         "code": subscriber_code,
         "contactId": contact_id,
-        "asLogin": True,
-        "overrideContact": True,
+        "asLogin": 1,
+        # 'overrideContact' es string en WSDL. Para email, enviamos el mismo valor
+        # que acabamos de agregar para reafirmarlo antes de validarlo.
+        "overrideContact": email_normalized,
     }
     logger.info(
         "[ValidateContact] Llamando validateContactOfSubscriber "
-        "(subscriber=%s, contactId=%s, email=%s, asLogin=True, overrideContact=True)",
+        "(subscriber=%s, contactId=%s, email=%s, asLogin=True, overrideContact=%s)",
         subscriber_code,
         contact_id,
         email_normalized,
+        email_normalized,
     )
     try:
-        response = panaccess.call("validateContactOfSubscriber", validate_params)
+        # Algunas instancias publican la operación sin prefijo "cv" y otras con "cv".
+        # Intentamos primero sin prefijo (como el resto de este proyecto) y fallback con prefijo.
+        try:
+            response = panaccess.call("validateContactOfSubscriber", validate_params)
+            func_used = "validateContactOfSubscriber"
+        except PanAccessException:
+            response = panaccess.call("cvValidateContactOfSubscriber", validate_params)
+            func_used = "cvValidateContactOfSubscriber"
+
         logger.info(
             "[ValidateContact] Email validado correctamente "
-            "(subscriber=%s, contactId=%s, answer=%r)",
+            "(subscriber=%s, contactId=%s, func=%s, answer=%r)",
             subscriber_code,
             contact_id,
+            func_used,
             response.get("answer"),
         )
         return True, None
     except PanAccessAPIError as exc:
         logger.error(
             "[ValidateContact] FALLÓ validateContactOfSubscriber | "
-            "subscriber=%s contactId=%s email=%s asLogin=True, overrideContact=True | "
+            "subscriber=%s contactId=%s email=%s asLogin=True overrideContact=%s | "
             "error=%s | error_code=%s | status_code=%s | params=%s",
             subscriber_code,
             contact_id,
+            email_normalized,
             email_normalized,
             exc,
             getattr(exc, "error_code", None),
@@ -187,7 +202,7 @@ def _validate_email_contact_of_subscriber(
     except PanAccessException as exc:
         logger.error(
             "[ValidateContact] FALLÓ validateContactOfSubscriber (PanAccess) | "
-            "subscriber=%s contactId=%s email=%s asLogin=True, overrideContact=True | error=%s | params=%s",
+            "subscriber=%s contactId=%s email=%s asLogin=True| error=%s | params=%s",
             subscriber_code,
             contact_id,
             email_normalized,
@@ -199,7 +214,7 @@ def _validate_email_contact_of_subscriber(
     except Exception as exc:
         logger.error(
             "[ValidateContact] FALLÓ validateContactOfSubscriber (inesperado) | "
-            "subscriber=%s contactId=%s email=%s asLogin=True, overrideContact=True | error=%s | params=%s",
+            "subscriber=%s contactId=%s email=%s asLogin=True| error=%s | params=%s",
             subscriber_code,
             contact_id,
             email_normalized,

@@ -593,19 +593,21 @@ LOGGING = {
             'filters': ['unicode_safe'],
         },
         'wind.services.panaccess_singleton': {
-            'handlers': ['console', 'panaccess_file'],
+            # También enviamos a django.log para ver el flujo completo
+            # (create_subscriber + llamadas PanAccess) en un solo archivo.
+            'handlers': ['console', 'file', 'panaccess_file'],
             'level': 'DEBUG' if DEBUG else 'INFO',
             'propagate': False,
             'filters': ['unicode_safe'],
         },
         'wind.utils.panaccess_auth': {
-            'handlers': ['console', 'panaccess_file'],
+            'handlers': ['console', 'file', 'panaccess_file'],
             'level': 'DEBUG' if DEBUG else 'INFO',
             'propagate': False,
             'filters': ['unicode_safe'],
         },
         'wind.services.panaccess_client': {
-            'handlers': ['console', 'panaccess_file'],
+            'handlers': ['console', 'file', 'panaccess_file'],
             'level': 'DEBUG' if DEBUG else 'INFO',
             'propagate': False,
             'filters': ['unicode_safe'],
