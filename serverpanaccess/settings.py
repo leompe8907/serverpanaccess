@@ -552,7 +552,9 @@ LOGGING = {
             'filename': LOGS_DIR / 'django.log',
             'maxBytes': 1024 * 1024 * 10,  # 10 MB
             'backupCount': 5,
-            'formatter': 'detailed',
+            'formatter': 'verbose',
+            'encoding': 'utf-8',
+            'delay': True,
         },
         'panaccess_file': {
             'level': 'INFO',
@@ -560,7 +562,19 @@ LOGGING = {
             'filename': LOGS_DIR / 'panaccess.log',
             'maxBytes': 1024 * 1024 * 10,  # 10 MB
             'backupCount': 5,
-            'formatter': 'detailed',
+            'formatter': 'verbose',
+            'encoding': 'utf-8',
+            'delay': True,
+        },
+        'tasks_file': {
+            'level': 'INFO',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': LOGS_DIR / 'tasks.log',
+            'maxBytes': 1024 * 1024 * 10,  # 10 MB
+            'backupCount': 5,
+            'formatter': 'verbose',
+            'encoding': 'utf-8',
+            'delay': True,
         },
         'error_file': {
             'level': 'ERROR',
@@ -568,16 +582,19 @@ LOGGING = {
             'filename': LOGS_DIR / 'errors.log',
             'maxBytes': 1024 * 1024 * 10,  # 10 MB
             'backupCount': 5,
-            'formatter': 'detailed',
+            'formatter': 'verbose',
+            'encoding': 'utf-8',
+            'delay': True,
         },
     },
     'root': {
-        'handlers': ['console', 'file'],
+        # 'error_file' para concentrar trazas de errores de cualquier logger.
+        'handlers': ['console', 'file', 'error_file'],
         'level': 'INFO',
     },
     'loggers': {
         'django': {
-            'handlers': ['console', 'file'],
+            'handlers': ['console', 'file', 'error_file'],
             'level': 'INFO',
             'propagate': False,
         },
@@ -586,8 +603,19 @@ LOGGING = {
             'level': 'ERROR',
             'propagate': False,
         },
-        'wind': {
+        'django.server': {
+            'handlers': ['console', 'file', 'error_file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        # Opcional: SQL en DEBUG (suele ser muy ruidoso).
+        'django.db.backends': {
             'handlers': ['console', 'file'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        'wind': {
+            'handlers': ['console', 'file', 'error_file'],
             'level': 'DEBUG' if DEBUG else 'INFO',
             'propagate': False,
             'filters': ['unicode_safe'],
@@ -595,28 +623,44 @@ LOGGING = {
         'wind.services.panaccess_singleton': {
             # También enviamos a django.log para ver el flujo completo
             # (create_subscriber + llamadas PanAccess) en un solo archivo.
-            'handlers': ['console', 'file', 'panaccess_file'],
+            'handlers': ['console', 'file', 'panaccess_file', 'error_file'],
             'level': 'DEBUG' if DEBUG else 'INFO',
             'propagate': False,
             'filters': ['unicode_safe'],
         },
         'wind.utils.panaccess_auth': {
-            'handlers': ['console', 'file', 'panaccess_file'],
+            'handlers': ['console', 'file', 'panaccess_file', 'error_file'],
             'level': 'DEBUG' if DEBUG else 'INFO',
             'propagate': False,
             'filters': ['unicode_safe'],
         },
         'wind.services.panaccess_client': {
-            'handlers': ['console', 'file', 'panaccess_file'],
+            'handlers': ['console', 'file', 'panaccess_file', 'error_file'],
             'level': 'DEBUG' if DEBUG else 'INFO',
             'propagate': False,
             'filters': ['unicode_safe'],
         },
         'wind.apps': {
-            'handlers': ['console', 'file'],
+            'handlers': ['console', 'file', 'error_file'],
             'level': 'DEBUG' if DEBUG else 'INFO',
             'propagate': False,
             'filters': ['unicode_safe'],
+        },
+        # Celery / tareas
+        'celery': {
+            'handlers': ['console', 'tasks_file', 'error_file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'celery.worker': {
+            'handlers': ['console', 'tasks_file', 'error_file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'celery.beat': {
+            'handlers': ['console', 'tasks_file', 'error_file'],
+            'level': 'INFO',
+            'propagate': False,
         },
     },
 }

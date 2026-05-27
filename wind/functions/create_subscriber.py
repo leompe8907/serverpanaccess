@@ -9,6 +9,7 @@ Seguridad (roadmap #7): registro público sin JWT, pero con throttling estricto
 y posibilidad de desactivar el endpoint HTTP en prod (flujo social usa bypass interno).
 """
 import logging
+import base64
 
 from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.permissions import AllowAny
@@ -647,6 +648,9 @@ def create_subscriber_view(request):
             'success': True,
             'message': 'Suscriptor creado exitosamente',
             'subscriber_code': subscriber_code,
+            # Login alternativo: el email (útil para que el frontend lo muestre/guarde).
+            # Nota: que esté aquí no implica que PanAccess lo acepte como login si existe unique_db_violation.
+            'alternative_login': email_normalized,
             'data': {
                 'code': subscriber_code,
                 'supervisor': 'AUTOMATICO',
@@ -851,7 +855,13 @@ def create_subscriber_view(request):
         # Link firmado (corto) para mostrar credenciales inmediatamente tras registro.
         # Incluye estado de provisión (license block) para mostrar mensaje al usuario.
         signer = TimestampSigner(salt="wind.credentials")
-        payload = f"{subscriber_code}|{int(bool(response_data.get('license_block_added')))}|{(response_data.get('license_block_error') or '')}"
+        # Incluimos el email (b64 urlsafe) para poder mostrarlo como "usuario alternativo"
+        # en la pantalla de credenciales, sin depender de login2.
+        # Formato: "<code>|<license_ok_int>|<b64(license_error)>|<b64(email)>"
+        license_err_raw = (response_data.get("license_block_error") or "")
+        license_err_b64 = base64.urlsafe_b64encode(license_err_raw.encode("utf-8")).decode("ascii")
+        email_b64 = base64.urlsafe_b64encode(email_normalized.encode("utf-8")).decode("ascii")
+        payload = f"{subscriber_code}|{int(bool(response_data.get('license_block_added')))}|{license_err_b64}|{email_b64}"
         token = signer.sign(payload)
         response_data["credentials_url"] = f"/wind/credentials/?t={token}"
 

@@ -83,16 +83,39 @@ def credentials_view(request):
     except BadSignature:
         return render(request, "wind/credentials.html", {"error": "Enlace inválido."}, status=400)
 
-    # Formato esperado: "<subscriber_code>|<license_ok_int>|<license_error>"
-    parts = str(raw).split("|", 2)
+    # Formato esperado (nuevo):
+    # "<subscriber_code>|<license_ok_int>|<b64(license_error)>|<b64(email)>"
+    # Formato anterior:
+    # "<subscriber_code>|<license_ok_int>|<license_error>"
+    parts = str(raw).split("|")
     subscriber_code = parts[0] if parts else ""
     license_ok = parts[1] if len(parts) > 1 else ""
-    license_err = parts[2] if len(parts) > 2 else ""
+    license_err = ""
+    email_from_token = ""
+
+    if len(parts) >= 4:
+        import base64
+
+        try:
+            license_err = base64.urlsafe_b64decode(parts[2].encode("ascii")).decode("utf-8")
+        except Exception:
+            license_err = parts[2]
+
+        try:
+            email_from_token = base64.urlsafe_b64decode(parts[3].encode("ascii")).decode("utf-8")
+        except Exception:
+            email_from_token = parts[3]
+    else:
+        # Compatibilidad con tokens viejos (sin b64).
+        license_err = parts[2] if len(parts) > 2 else ""
 
     try:
         login_info = CallGetSubscriberLoginInfo(subscriber_code=subscriber_code)
+        # Mostrar el email como "usuario alternativo" cuando viene en el token.
+        # Esto evita enseñar el login2 (que puede ser un identificador interno).
+        login2_display = (email_from_token or "").strip() or (login_info.get("login2") or "")
         context = {
-            "login2": login_info.get("login2") or "",
+            "login2": login2_display,
             "login1": login_info.get("login1") or "",
             "password": login_info.get("password") or "",
             "license_block_added": True if str(license_ok) == "1" else False,
