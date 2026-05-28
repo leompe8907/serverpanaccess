@@ -25,12 +25,11 @@
 
 ### 🎯 ¿Qué es este proyecto?
 
-Este es un servidor Django/Channels que proporciona:
-- **API REST** para gestión de wind (Unique Device Identifier)
-- **WebSockets** para comunicación en tiempo real
-- **Sincronización** con sistema externo Panaccess
-- **Autenticación JWT** para seguridad
-- **Rate limiting** y protección DDoS
+Este es un servidor Django que proporciona:
+- **API REST** para gestión de suscriptores y smartcards.
+- **Sincronización** asíncrona con sistema externo Panaccess vía Celery.
+- **Autenticación JWT** para seguridad.
+- **Rate limiting** y protección operativa.
 
 ### 📦 Componentes del Sistema
 
@@ -43,29 +42,26 @@ Este es un servidor Django/Channels que proporciona:
 ┌─────────────────────────────────────────────────────────────────┐
 │                    NGINX (Puerto 443/80)                        │
 │              - SSL/TLS Termination                              │
-│              - Proxy Inverso                                    │
-│              - Balanceo de Carga                                │
+│              - Proxy Inverso (a Gunicorn)                        │
+│              - Restricción de rutas operativas                  │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│              DAPHNE (Puertos 8000-8032)                         │
-│           Servidor ASGI - HTTP + WebSockets                     │
-│              (Múltiples instancias)                             │
+│                    GUNICORN (Puerto 8000)                       │
+│              Servidor WSGI para Django                          │
 └─────────────────────────────────────────────────────────────────┘
                     │                   │
                     ▼                   ▼
 ┌───────────────────────┐   ┌───────────────────────┐
 │     POSTGRESQL        │   │        REDIS          │
-│   (Puerto 5432)       │   │    (Puerto 6379)      │
-│   Base de Datos       │   │   Cache + WebSockets  │
+│   (Puerto 5432)       │   │   Broker de Celery    │
+│   Base de Datos       │   │   + Caché + Locks     │
 └───────────────────────┘   └───────────────────────┘
 ```
 
-> ✅ **Nota (repo actual `serverpanaccess`)**  
-> En este repositorio, el despliegue en Ubuntu está planteado con **nginx → Gunicorn (WSGI)** en `127.0.0.1:8000`, y **Celery** para tareas.  
-> La parte de “múltiples instancias Daphne 8000–8032” corresponde a un enfoque ASGI multi-puerto que **no es la plantilla principal** del repo actual.  
-> Referencias reales del repo: `deploy/systemd/win-gunicorn.service`, `deploy/nginx/win-backend.conf`.
+> ✅ **Nota sobre este repositorio**  
+> El despliegue en Ubuntu está estandarizado con **Gunicorn** y **Celery**. Las plantillas de configuración se encuentran en la carpeta `deploy/`.
 
 ### ✅ Requisitos Mínimos del Servidor
 
@@ -840,16 +836,16 @@ OK
 
 ```bash
 # Crear directorio para la aplicación
-sudo mkdir -p /opt/wind
+sudo mkdir -p /opt/win-backend
 
 # Cambiar propietario al usuario wind
-sudo chown -R wind:wind /opt/wind
+sudo chown -R www-data /opt/win-backend
 
 # Cambiar al usuario wind
 sudo su - wind
 
 # Ir al directorio
-cd /opt/wind
+cd /opt/win-backend
 ```
 
 ### 6.2 Copiar el Código del Proyecto
@@ -870,17 +866,17 @@ Desde tu computadora local (no en el servidor):
 
 ```bash
 # Windows (PowerShell) o Mac/Linux Terminal
-scp -r "C:\Users\Leonard\Desktop\wind\ubuntu\*" wind@IP_DEL_SERVIDOR:/opt/wind/
+scp -r "C:\Users\Leonard\Desktop\wind\ubuntu\*" wind@IP_DEL_SERVIDOR:/opt/win-backend/
 
 # O comprimir primero y luego descomprimir
 # En tu computadora:
 zip -r proyecto.zip ubuntu/
 
 # Copiar al servidor
-scp proyecto.zip wind@IP_DEL_SERVIDOR:/opt/wind/
+scp proyecto.zip wind@IP_DEL_SERVIDOR:/opt/win-backend/
 
 # En el servidor, descomprimir
-cd /opt/wind
+cd /opt/win-backend
 unzip proyecto.zip
 mv ubuntu/* .
 rm -rf ubuntu proyecto.zip
@@ -890,14 +886,14 @@ rm -rf ubuntu proyecto.zip
 
 1. Descargar e instalar FileZilla o WinSCP
 2. Conectar al servidor con las credenciales SSH
-3. Navegar a `/opt/wind/` en el servidor
+3. Navegar a `/opt/win-backend/` en el servidor
 4. Arrastrar los archivos del proyecto
 
 ### 6.3 Crear y Activar Entorno Virtual
 
 ```bash
 # Asegurarse de estar en el directorio del proyecto
-cd /opt/wind
+cd /opt/win-backend
 
 # Crear entorno virtual
 python3 -m venv env
@@ -906,7 +902,7 @@ python3 -m venv env
 source env/bin/activate
 
 # Verificar que está activado (debe mostrar (venv) al inicio del prompt)
-# (venv) wind@servidor:/opt/wind$
+# (venv) wind@servidor:/opt/win-backend$
 ```
 
 ### 6.4 Instalar Dependencias de Python
@@ -929,7 +925,7 @@ pip list
 
 ```bash
 # La estructura debe verse así:
-ls -la /opt/wind/
+ls -la /opt/win-backend/
 
 # Debería mostrar:
 # - manage.py
@@ -960,7 +956,7 @@ ls -la /opt/wind/
 
 ```bash
 # Crear archivo .env en el directorio del proyecto
-nano /opt/wind/.env
+nano /opt/win-backend/.env
 ```
 
 Copiar y pegar el siguiente contenido, **modificando los valores según tu configuración**:
@@ -997,25 +993,32 @@ ALLOWED_HOSTS=127.0.0.1,localhost,tu.dominio.com,IP_DEL_SERVIDOR
 # BASE DE DATOS POSTGRESQL
 # ============================================================================
 
-# Configuración de PostgreSQL
-POSTGRES_DB=wind
-POSTGRES_USER=wind_user
-POSTGRES_PASSWORD=tu_password_seguro
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5432
+# Configuración de PostgreSQL (Prefijo DB_ requerido por appConfig.py)
+DB_ENGINE=django.db.backends.postgresql
+DB_NAME=wind
+DB_USER=wind_user
+DB_PASSWORD=tu_password_seguro
+DB_HOST=localhost
+DB_PORT=5432
+DB_CONN_MAX_AGE=60
 
 # ============================================================================
 # REDIS
 # ============================================================================
 
-# URL de Redis
-REDIS_URL=redis://localhost:6379/0
+# Configuración básica de Redis
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_DB=0
+REDIS_PASSWORD=
 
-# Configuración de Channel Layers (WebSockets)
-REDIS_CHANNEL_LAYER_URL=redis://localhost:6379/0
+# DB específica para caché de Django
+REDIS_CACHE_DB=1
 
-# Configuración de Rate Limiting
-REDIS_RATE_LIMIT_URL=redis://localhost:6379/1
+# URLs completas (opcionales, tienen prioridad sobre HOST/PORT)
+# REDIS_URL=redis://localhost:6379/0
+# CELERY_BROKER_URL=redis://localhost:6379/0
+# CELERY_RESULT_BACKEND=redis://localhost:6379/0
 
 # ============================================================================
 # PANACCESS (API Externa)
@@ -1123,7 +1126,7 @@ Guardar y salir: `Ctrl + X`, luego `Y`, luego `Enter`
 
 ```bash
 # Generar una clave secreta segura
-cd /opt/wind
+cd /opt/win-backend
 source env/bin/activate
 python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
 
@@ -1134,10 +1137,10 @@ python -c "from django.core.management.utils import get_random_secret_key; print
 
 ```bash
 # Cambiar permisos para que solo el usuario wind pueda leerlo
-chmod 600 /opt/wind/.env
+chmod 600 /opt/win-backend/.env
 
 # Verificar permisos
-ls -la /opt/wind/.env
+ls -la /opt/win-backend/.env
 # Debe mostrar: -rw------- 1 wind wind
 ```
 
@@ -1298,7 +1301,7 @@ CELERY_WORKER_MAX_TASKS_PER_CHILD=1000
 Editar el archivo de configuración:
 
 ```bash
-nano /opt/wind/ubuntu/settings.py
+nano /opt/win-backend/ubuntu/settings.py
 ```
 
 Buscar la sección `DATABASES` y modificarla (comentar MySQL y descomentar PostgreSQL):
@@ -1339,7 +1342,7 @@ Guardar y salir.
 
 ```bash
 # Asegurarse de estar en el directorio correcto con el entorno virtual activado
-cd /opt/wind
+cd /opt/win-backend
 source env/bin/activate
 
 # Verificar configuración
@@ -1550,7 +1553,7 @@ server {
     # Archivos estáticos
     # ========================================================================
     location /static/ {
-        alias /opt/wind/staticfiles/;
+        alias /opt/win-backend/staticfiles/;
         expires 30d;
         add_header Cache-Control "public, immutable";
     }
@@ -1762,139 +1765,64 @@ sudo systemctl status nginx
 
 ## 11. Configuración de Systemd
 
-### 11.1 Crear Servicio para Daphne
+### 11.1 Crear Servicio para Gunicorn (HTTP)
 
-Vamos a crear un servicio systemd que ejecute múltiples instancias de Daphne:
-
-> ✅ **Nota (repo actual `serverpanaccess`)**  
-> En el repo actual, el despliegue Ubuntu está soportado con **systemd para Gunicorn y Celery**, ya incluidos en:
->
-> - `deploy/systemd/win-gunicorn.service` (API HTTP en `127.0.0.1:8000`)
-> - `deploy/systemd/win-celery-worker.service` (worker Celery en cola `sync_subscribers`)
-> - `deploy/systemd/win-celery-beat.service` (scheduler)
->
-> Estas unidades asumen:
-> - `WorkingDirectory=/opt/win-backend`
-> - `EnvironmentFile=/opt/win-backend/.env`
-> - venv en `/opt/win-backend/env`
->
-> Por eso, aunque la sección de Daphne se mantiene (no se borra), para este repo se recomienda usar las unidades `win-*` del directorio `deploy/systemd/`.
+Utilizaremos Gunicorn como servidor de aplicaciones WSGI. El archivo de servicio ya se encuentra en `deploy/systemd/win-gunicorn.service`.
 
 ```bash
-# Crear archivo de servicio para la instancia principal
-sudo nano /etc/systemd/system/wind@.service
+# Copiar el archivo de servicio al directorio de systemd
+sudo cp deploy/systemd/win-gunicorn.service /etc/systemd/system/
+
+# Si prefieres crearlo manualmente:
+sudo nano /etc/systemd/system/win-gunicorn.service
 ```
 
-Copiar el siguiente contenido:
+**Contenido recomendado (`win-gunicorn.service`):**
 
 ```ini
 [Unit]
-Description=wind Daphne Server (Instance %i)
+Description=Win Backend Gunicorn (Django API)
 After=network.target postgresql.service redis-server.service
-Requires=postgresql.service redis-server.service
+Wants=postgresql.service redis-server.service
 
 [Service]
 Type=simple
-User=wind
-Group=wind
-WorkingDirectory=/opt/wind
-Environment="PATH=/opt/wind/env/bin"
-EnvironmentFile=/opt/wind/.env
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/win-backend
+EnvironmentFile=/opt/win-backend/.env
 
-# Comando para ejecutar Daphne
-# El puerto se calcula: 8000 + %i (instancia)
-# Para instancias 0-9: puertos 8000-8009
-# Para instancias 10-19: puertos 8010-8019
-# Usar script wrapper para calcular puerto correctamente
-ExecStart=/bin/bash -c 'PORT=$((8000 + %i)); exec /opt/wind/env/bin/daphne -b 127.0.0.1 -p $PORT --access-log - --proxy-headers -t 60 --websocket_timeout 300 ubuntu.asgi:application'
+ExecStart=/opt/win-backend/env/bin/gunicorn serverpanaccess.wsgi:application \
+    --bind 127.0.0.1:8000 \
+    --workers 4 \
+    --threads 2 \
+    --timeout 120
 
-# Reinicio automático
 Restart=always
-RestartSec=3
-
-# Limitar recursos (ajustar según necesidad)
-# Configuración estándar: 1GB por instancia
-# Configuración optimizada para 64-120GB RAM: 512MB-1GB por instancia (más instancias)
-MemoryMax=1G
-CPUQuota=100%
-
-# Logs
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=wind-%i
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-Guardar y salir.
-
-### 11.2 Crear Script de Control
+### 11.2 Iniciar y Habilitar Gunicorn
 
 ```bash
-# Crear script para manejar todas las instancias
-sudo nano /opt/wind/manage_services.sh
+# Recargar systemd
+sudo systemctl daemon-reload
+
+# Iniciar el servicio
+sudo systemctl start win-gunicorn
+
+# Habilitar inicio automático
+sudo systemctl enable win-gunicorn
+
+# Verificar estado
+sudo systemctl status win-gunicorn
 ```
 
-Copiar el siguiente contenido:
-
-```bash
-#!/bin/bash
-# Script para manejar múltiples instancias de Daphne
-
-# Número de instancias (ajustar según CPU cores y carga esperada)
-# Configuración estándar: 4 instancias (hasta 1000 requests simultáneos)
-# Configuración optimizada para 32GB RAM / 16 cores: 33 instancias (puertos 8000-8032)
-# Configuración optimizada para 64GB RAM / 32 cores: 40 instancias
-# Configuración optimizada para 120GB RAM / 64 cores: 60 instancias
-INSTANCES=33
-
-# Para configuración estándar (servidor pequeño), cambiar a:
-# INSTANCES=4
-
-# Para configuración optimizada de 64GB RAM / 32 cores, cambiar a:
-# INSTANCES=40
-
-# Para configuración optimizada de 120GB RAM / 64 cores, cambiar a:
-# INSTANCES=60
-
-# Función para obtener el puerto según el número de instancia
-get_port() {
-    local instance=$1
-    if [ $instance -lt 10 ]; then
-        echo "800$instance"
-    else
-        echo "80$instance"
-    fi
-}
-
-case "$1" in
-    start)
-        echo "Iniciando $INSTANCES instancias de wind..."
-        for i in $(seq 0 $((INSTANCES-1))); do
-            sudo systemctl start wind@$i
-            PORT=$(get_port $i)
-            echo "  Instancia $i iniciada (puerto $PORT)"
-        done
-        ;;
-    stop)
-        echo "Deteniendo instancias de wind..."
-        for i in $(seq 0 $((INSTANCES-1))); do
-            sudo systemctl stop wind@$i
-            echo "  Instancia $i detenida"
-        done
-        ;;
-    restart)
-        echo "Reiniciando instancias de wind..."
-        for i in $(seq 0 $((INSTANCES-1))); do
-            sudo systemctl restart wind@$i
-            echo "  Instancia $i reiniciada"
-        done
-        ;;
-    status)
-        echo "Estado de instancias de wind:"
-        for i in $(seq 0 $((INSTANCES-1))); do
-            PORT=$(get_port $i)
+### 11.3 (Opcional) Daphne para WebSockets
+Si en el futuro decides implementar WebSockets (Django Channels), puedes utilizar Daphne siguiendo la lógica de múltiples instancias en puertos 8000-8009. Por ahora, para este repositorio, **Gunicorn es el estándar**.
             echo "--- Instancia $i (puerto $PORT) ---"
             sudo systemctl status wind@$i --no-pager | head -5
         done
@@ -1923,8 +1851,8 @@ esac
 Guardar y hacer ejecutable:
 
 ```bash
-sudo chmod +x /opt/wind/manage_services.sh
-sudo chown wind:wind /opt/wind/manage_services.sh
+sudo chmod +x /opt/win-backend/manage_services.sh
+sudo chown www-data /opt/win-backend/manage_services.sh
 ```
 
 ### 11.3 Iniciar y Habilitar Servicios
@@ -1934,13 +1862,13 @@ sudo chown wind:wind /opt/wind/manage_services.sh
 sudo systemctl daemon-reload
 
 # Iniciar todas las instancias
-sudo /opt/wind/manage_services.sh start
+sudo /opt/win-backend/manage_services.sh start
 
 # Habilitar inicio automático
-sudo /opt/wind/manage_services.sh enable
+sudo /opt/win-backend/manage_services.sh enable
 
 # Verificar estado
-sudo /opt/wind/manage_services.sh status
+sudo /opt/win-backend/manage_services.sh status
 ```
 
 ### 11.4 Verificar que Todo Funciona
@@ -1956,7 +1884,7 @@ sudo ss -tlnp | grep 800
 # LISTEN  127.0.0.1:8003  daphne
 
 # Verificar logs
-sudo journalctl -u wind@0 -f
+sudo journalctl -u win-gunicorn -f
 
 # Presionar Ctrl+C para salir
 ```
@@ -1984,32 +1912,28 @@ El proyecto usa **Celery** para ejecutar tareas periódicas en background de for
 > Esta guía conserva el flujo histórico de `execute_sync_tasks()` para no romper la estructura, pero la referencia “canónica” del repo actual es el flujo HTTP async + Beat/Worker.
 
 1. **PASO 1**: Crear y configurar el script `ejecutar_sync_tasks.py` (sección 12.6.1)
-2. **PASO 2**: Ejecutar `execute_sync_tasks()` UNA SOLA VEZ con el script de cron (sección 12.6.2)
-   - Esta sincronización descarga TODA la información inicial desde Panaccess
-   - Se ejecuta de forma síncrona (puedes ver el progreso)
-   - El script verifica si ya se ejecutó para evitar duplicados
-3. **PASO 3**: Iniciar Celery Worker (sección 12.5, Paso 2)
-   - Necesario para ejecutar las tareas periódicas de Celery
-4. **PASO 4**: Activar Celery Beat (sección 12.5, Paso 3 y 12.7)
-   - Solo después de que `execute_sync_tasks()` se haya completado exitosamente
-   - Beat ejecutará las tareas periódicas automáticamente
+**PASO 1**: Cargar variables de entorno y aplicar migraciones.
+2. **PASO 2**: Ejecutar la sincronización inicial vía Django Shell (sección 12.6).
+   - Esta sincronización descarga TODA la información inicial desde Panaccess.
+   - Es un paso previo indispensable para evitar inconsistencias.
+3. **PASO 3**: Iniciar Celery Worker (`win-celery-worker.service`).
+4. **PASO 4**: Activar Celery Beat (`win-celery-beat.service`) para el mantenimiento automático.
 
-**⚠️ IMPORTANTE**: NO activar Celery Beat hasta que `execute_sync_tasks()` se haya completado. Las tareas periódicas necesitan datos base en la BD.
+**⚠️ IMPORTANTE**: NO activar Celery Beat hasta que la sincronización inicial se haya completado exitosamente.
 
 **Tareas configuradas:**
 
 | Tarea                                | Periodicidad                     | Propósito                                  | Prioridad | Método |
 |--------------------------------------|----------------------------------|--------------------------------------------|-----------|--------|
-| `execute_sync_tasks()` (cron.py)     | **MANUAL - UNA VEZ** (al iniciar) | **OBLIGATORIA**: Sincronización inicial completa. Se ejecuta con script de cron ANTES de activar Celery Beat | 🔴 CRÍTICA | Cron script |
-| `check_and_sync_smartcards_monthly`  | Día 28 de cada mes a las 3:00 AM | Verifica y descarga nuevas smartcards desde Panaccess | 🟡 Automática | Celery Beat |
-| `check_and_sync_subscribers_periodic`| Cada 5 minutos                   | Detecta nuevos suscriptores, descarga credenciales y actualiza smartcards | 🟡 Automática | Celery Beat |
-| `validate_and_sync_all_data_daily`   | Cada día a las 22:00 (10:00 PM)  | Valida y corrige todos los registros existentes comparándolos con Panaccess | 🟡 Automática | Celery Beat |
+| `run_full_sync(limit=200)`           | **MANUAL - UNA VEZ** (al iniciar) | **OBLIGATORIA**: Sincronización inicial completa vía Django Shell. | 🔴 CRÍTICA | Django Shell |
+| `compare-and-update-subscribers`     | Cada 10 minutos (Beat)           | Detecta nuevos suscriptores y actualiza smartcards. | 🟡 Automática | Celery Beat |
+| `compare-and-update-smartcards`      | Cada 10 minutos (Beat)           | Verifica y descarga nuevas smartcards desde Panaccess. | 🟡 Automática | Celery Beat |
+| `full-sync-nightly`                  | Diariamente a las 00:00 (Beat)   | Reconciliación global correctiva.          | 🟡 Automática | Celery Beat |
 
 **⚠️ IMPORTANTE - Orden de Ejecución:**
-1. **PRIMERO**: Ejecutar `execute_sync_tasks()` usando el script de cron (`ejecutar_sync_tasks.py`) UNA VEZ cuando se despliega el sistema por primera vez
-2. **SEGUNDO**: Iniciar Celery Worker (necesario para las tareas periódicas)
-3. **TERCERO**: Activar Celery Beat para que las tareas periódicas se ejecuten automáticamente según su periodicidad
-4. Las tareas automáticas de Celery dependen de que `execute_sync_tasks()` se haya ejecutado primero para tener datos base
+1. **PRIMERO**: Ejecutar la sincronización inicial usando `run_full_sync()` en el shell de Django.
+2. **SEGUNDO**: Iniciar Celery Worker.
+3. **TERCERO**: Activar Celery Beat para el mantenimiento periódico.
 
 **Componentes de Celery:**
 - **Celery Worker**: Ejecuta las tareas en background (SIEMPRE debe estar activo)
@@ -2031,139 +1955,82 @@ El proyecto usa **Celery** para ejecutar tareas periódicas en background de for
 - Los resultados se almacenan en Redis (backend)
 - **Mecanismo de lock**: Las tareas tienen un sistema de bloqueo para evitar ejecuciones simultáneas
 
-### 12.1 Verificar Instalación de Celery
+## 12. Configuración de Celery
 
-Celery ya está incluido en `requirements.txt`, pero verifiquemos que se instaló correctamente:
+Celery se encarga de las tareas en segundo plano y la sincronización periódica con Panaccess.
+
+### 12.1 Verificar Instalación de Celery
 
 ```bash
 # Activar entorno virtual
-cd /opt/wind
+cd /opt/win-backend
 source env/bin/activate
 
 # Verificar que Celery está instalado
-celery --version
-
-# Debería mostrar: celery 5.4.0 (o similar)
+python -m celery --version
 ```
 
 ### 12.2 Crear Servicio Systemd para Celery Worker
 
-El Worker de Celery ejecuta las tareas en background. **Este servicio DEBE estar activo** para poder ejecutar tareas manualmente:
+El Worker procesa las tareas encoladas. El archivo ya se encuentra en `deploy/systemd/win-celery-worker.service`.
 
 ```bash
-# Crear archivo de servicio para Celery Worker
-sudo nano /etc/systemd/system/celery-worker.service
+# Copiar el archivo de servicio
+sudo cp deploy/systemd/win-celery-worker.service /etc/systemd/system/
+
+# Recargar systemd
+sudo systemctl daemon-reload
+
+# Iniciar y habilitar
+sudo systemctl start win-celery-worker
+sudo systemctl enable win-celery-worker
+
+# Verificar
+sudo systemctl status win-celery-worker
 ```
 
-Copiar el siguiente contenido:
+### 12.3 Crear Servicio Systemd para Celery Beat
 
-```ini
-[Unit]
-Description=Celery Worker para wind
-After=network.target postgresql.service redis-server.service
-Requires=postgresql.service redis-server.service
-
-[Service]
-Type=simple
-User=wind
-Group=wind
-WorkingDirectory=/opt/wind
-Environment="PATH=/opt/wind/env/bin"
-EnvironmentFile=/opt/wind/.env
-
-# Comando para ejecutar Celery Worker
-# ⚠️ IMPORTANTE: Celery NO acepta "--concurrency auto", debe ser un número entero
-# Configuración estándar (servidor pequeño): --concurrency 2
-# Configuración optimizada para 32GB RAM / 16 cores: --concurrency 12
-# Configuración optimizada para 32GB RAM / 32 cores: --concurrency 16
-# Configuración optimizada para 64GB RAM / 32 cores: --concurrency 24
-# Configuración optimizada para 124GB RAM / 64 cores: --concurrency 48
-ExecStart=/opt/wind/env/bin/celery -A ubuntu worker \
-    --loglevel=info \
-    --logfile=/var/log/wind/celery-worker.log \
-    --pidfile=/run/wind/celery-worker.pid \
-    --concurrency=12
-
-# Comando para detener
-ExecStop=/bin/kill -s TERM $MAINPID
-PIDFile=/run/wind/celery-worker.pid
-
-# Reinicio automático
-Restart=always
-RestartSec=3
-
-# Limitar recursos según configuración
-# Configuración estándar: 2GB
-# Configuración optimizada para 32GB RAM / 16 cores: 2GB
-# Configuración optimizada para 32GB RAM / 32 cores: 2GB
-# Configuración optimizada para 64GB RAM / 32 cores: 4GB
-# Configuración optimizada para 124GB RAM / 64 cores: 4GB
-MemoryMax=2G
-CPUQuota=100%
-
-# Logs
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=celery-worker
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Guardar y salir.
-
-### 12.3 Crear Servicio Systemd para Celery Beat (Requerido para Tareas Automáticas)
-
-> ✅ **IMPORTANTE:** Celery Beat es **REQUERIDO** para que las tareas periódicas se ejecuten automáticamente. Debe estar activo junto con el Worker.
-
-Celery Beat programa y ejecuta las tareas periódicas automáticamente según la configuración en `ubuntu/settings.py`:
+Beat es el planificador de tareas periódicas. **No lo actives hasta completar la sincronización inicial.**
 
 ```bash
-# Crear archivo de servicio para Celery Beat
-sudo nano /etc/systemd/system/celery-beat.service
+# Copiar el archivo de servicio
+sudo cp deploy/systemd/win-celery-beat.service /etc/systemd/system/
+
+# Recargar systemd
+sudo systemctl daemon-reload
 ```
 
-Copiar el siguiente contenido:
+### 12.4 Ejecutar Sincronización Inicial OBLIGATORIA
 
-```ini
-[Unit]
-Description=Celery Beat Scheduler para wind
-After=network.target postgresql.service redis-server.service celery-worker.service
-Requires=postgresql.service redis-server.service celery-worker.service
+Antes de activar el mantenimiento automático (Beat), es imperativo realizar una carga inicial de datos.
 
-[Service]
-Type=simple
-User=wind
-Group=wind
-WorkingDirectory=/opt/wind
-Environment="PATH=/opt/wind/env/bin"
-EnvironmentFile=/opt/wind/.env
-
-# Comando para ejecutar Celery Beat
-ExecStart=/opt/wind/env/bin/celery -A ubuntu beat \
-    --loglevel=info \
-    --logfile=/var/log/wind/celery-beat.log \
-    --pidfile=/run/wind/celery-beat.pid \
-    --schedule=/run/wind/celerybeat-schedule
-
-# Reinicio automático
-Restart=always
-RestartSec=3
-
-# Limitar recursos
-MemoryMax=512M
-CPUQuota=50%
-
-# Logs
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=celery-beat
-
-[Install]
-WantedBy=multi-user.target
+```bash
+# Entrar al shell de Django
+cd /opt/win-backend
+source env/bin/activate
+python manage.py shell
 ```
 
-Guardar y salir.
+```python
+from wind.functions.full_sync import run_full_sync
+# Esto descargará suscriptores, productos y smartcards
+run_full_sync(limit=200)
+exit()
+```
+
+### 12.5 Activar Celery Beat
+
+Una vez que la base de datos local tiene los datos iniciales, podemos activar el mantenimiento automático.
+
+```bash
+# Iniciar y habilitar Beat
+sudo systemctl start win-celery-beat
+sudo systemctl enable win-celery-beat
+
+# Verificar
+sudo systemctl status win-celery-beat
+```
 
 ### 12.4 Crear Directorios y Archivos de Log Necesarios
 
@@ -2173,11 +2040,11 @@ Guardar y salir.
 # Crear directorio para archivos PID y schedule
 # ⚠️ IMPORTANTE: Usar /run/wind (no /var/run/wind) para evitar warnings de systemd
 sudo mkdir -p /run/wind
-sudo chown wind:wind /run/wind
+sudo chown www-data /run/wind
 
 # Crear directorio de logs (si no existe)
 sudo mkdir -p /var/log/wind
-sudo chown wind:wind /var/log/wind
+sudo chown www-data /var/log/wind
 sudo chmod 755 /var/log/wind
 
 # ⚠️ IMPORTANTE: Crear archivos de log antes de iniciar los servicios
@@ -2187,7 +2054,7 @@ sudo touch /var/log/wind/celery-beat.log
 sudo touch /var/log/wind/celery-flower.log  # Opcional, solo si usas Flower
 
 # Establecer permisos correctos para los archivos de log
-sudo chown wind:wind /var/log/wind/*.log
+sudo chown www-data /var/log/wind/*.log
 sudo chmod 664 /var/log/wind/*.log
 
 # Verificar que los archivos se crearon correctamente
@@ -2264,17 +2131,22 @@ Las tareas periódicas están configuradas en `ubuntu/settings.py` en la variabl
 
 ```python
 CELERY_BEAT_SCHEDULE = {
-    'check-and-sync-smartcards-monthly': {
-        'task': 'wind.tasks.check_and_sync_smartcards_monthly',
-        'schedule': crontab(day_of_month='28', hour=3, minute=0),  # Día 28 a las 3:00 AM
+    # Mantenimiento cada N min (reconcilia local vs PanAccess)
+    "compare-and-update-subscribers": {
+        "task": "wind.tasks.compare_and_update_subscribers_task",
+        "schedule": crontab(minute="*/10"), # Ajustable vía CELERY_SYNC_MINUTES
+        "args": (200,),
     },
-    'check-and-sync-subscribers-periodic': {
-        'task': 'wind.tasks.check_and_sync_subscribers_periodic',
-        'schedule': 300.0,  # Cada 5 minutos
+    "compare-and-update-smartcards": {
+        "task": "wind.tasks.compare_and_update_smartcards_task",
+        "schedule": crontab(minute="*/10"), # Ajustable vía CELERY_SMARTCARD_SYNC_MINUTES
+        "args": (200,),
     },
-    'validate-and-sync-all-data-daily': {
-        'task': 'wind.tasks.validate_and_sync_all_data_daily',
-        'schedule': crontab(hour=22, minute=0),  # Cada día a las 22:00
+    # Sincronización global correctiva nocturna
+    "full-sync-nightly": {
+        "task": "wind.tasks.full_sync_task",
+        "schedule": crontab(hour=0, minute=0), # Ajustable vía CELERY_FULL_SYNC_HOUR/MINUTE
+        "kwargs": {"limit": 200},
     },
 }
 ```
@@ -2291,83 +2163,20 @@ CELERY_BEAT_SCHEDULE = {
 - Si una tarea está en ejecución, las demás esperarán hasta que termine
 - Esto previene conflictos y sobrecarga del sistema
 
-### 12.6 Ejecutar Sincronización Inicial OBLIGATORIA: execute_sync_tasks()
+### 12.6 Ejecutar Sincronización Inicial OBLIGATORIA
 
-> 🔴 **CRÍTICO**: Esta sincronización DEBE ejecutarse PRIMERO antes de activar las tareas automáticas de Celery. Es la sincronización inicial completa que descarga todos los datos desde Panaccess.
+> 🔴 **CRÍTICO**: Esta sincronización DEBE ejecutarse PRIMERO antes de activar las tareas automáticas de Celery Beat. Es la sincronización inicial que descarga todos los datos desde Panaccess.
 
-**¿Por qué es obligatoria?**
-- Descarga TODA la información inicial desde Panaccess (suscriptores, smartcards, credenciales)
-- Las tareas automáticas de Celery dependen de tener datos base en la BD
-- Sin esta sincronización, las tareas automáticas no tendrán datos con los que trabajar
+Como el script de automatización no se encuentra en el repositorio, utilizaremos el **shell de Django** para disparar la sincronización inicial de forma controlada.
 
-**⚠️ IMPORTANTE:**
-- Ejecutar SOLO UNA VEZ cuando se despliega el sistema por primera vez
-- Se ejecuta con un script de cron (`ejecutar_sync_tasks.py`), NO con Celery
-- El script verifica si ya se ejecutó para evitar ejecuciones duplicadas
-- Después de ejecutarla, puedes activar Celery Beat para las tareas periódicas
+#### Método: Ejecutar desde el Shell de Django (Recomendado)
 
-**Tareas automáticas de Celery (se ejecutan después de execute_sync_tasks()):**
-- `check_and_sync_smartcards_monthly`: Verifica y descarga nuevas smartcards (normalmente se ejecuta el día 28 de cada mes)
-- `check_and_sync_subscribers_periodic`: Detecta nuevos suscriptores y actualiza datos (normalmente cada 5 minutos)
-- `validate_and_sync_all_data_daily`: Valida y corrige todos los registros (normalmente cada día a las 22:00)
-
-### 12.6.1 Crear Script para Ejecutar execute_sync_tasks()
-
-Primero, creamos el script que ejecutará `execute_sync_tasks()` desde cron:
+Este método permite ejecutar la lógica de sincronización global directamente:
 
 ```bash
-# Crear el script
-sudo nano /opt/wind/ejecutar_sync_tasks.py
-```
-
-El script ya está incluido en el proyecto. Si necesitas crearlo manualmente, copia el contenido del archivo `ejecutar_sync_tasks.py` en la raíz del proyecto.
-
-```bash
-# Hacer ejecutable
-sudo chmod +x /opt/wind/ejecutar_sync_tasks.py
-sudo chown wind:wind /opt/wind/ejecutar_sync_tasks.py
-
-# Crear directorio de logs (si no existe)
-sudo mkdir -p /var/log/wind
-sudo chown wind:wind /var/log/wind
-```
-
-### 12.6.2 Ejecutar execute_sync_tasks() UNA SOLA VEZ
-
-#### Método 1: Ejecutar con Script de Cron (Recomendado)
-
-Este es el método recomendado porque:
-- Ejecuta la sincronización de forma síncrona (puedes ver el progreso)
-- Verifica si ya se ejecutó para evitar duplicados
-- Guarda información de la ejecución para referencia futura
-- No requiere Celery Worker activo
-
-```bash
-# Cambiar al usuario wind
-sudo su - wind
-cd /opt/wind
-
-# Activar entorno virtual
-source env/bin/activate
-
-# Ejecutar el script (verifica si ya se ejecutó)
-python ejecutar_sync_tasks.py
-
-# Si necesitas forzar ejecución aunque ya se haya ejecutado:
-# python ejecutar_sync_tasks.py --force
-
-# Verificar si ya se ejecutó (sin ejecutar):
-# python ejecutar_sync_tasks.py --check
-```
-
-El script mostrará el progreso en tiempo real y guardará la información en `/var/log/wind/sync_tasks_completed.json`.
-
-#### Método 2: Ejecutar desde el Shell de Django
-
-```bash
-# Cambiar al usuario wind
-sudo su - wind
-cd /opt/wind
+# Cambiar al usuario www-data (o tu usuario de despliegue)
+sudo su - www-data
+cd /opt/win-backend
 
 # Activar entorno virtual
 source env/bin/activate
@@ -2376,103 +2185,75 @@ source env/bin/activate
 python manage.py shell
 ```
 
-Dentro del shell de Python:
+Dentro del shell de Django, ejecuta:
 
 ```python
-# Importar la función de cron.py
-from wind.cron import execute_sync_tasks
+from wind.functions.full_sync import run_full_sync
 
-# Ejecutar la sincronización (se ejecuta de forma síncrona)
-result = execute_sync_tasks()
+# Ejecutar sincronización global inicial (puede tardar varios minutos/horas)
+# El límite por página se puede ajustar (ej: 200)
+result = run_full_sync(limit=200)
 
-# Ver el resultado
-print(f"Éxito: {result['success']}")
-print(f"Mensaje: {result['message']}")
-print(f"Session ID: {result.get('session_id')}")
-
-# Ver detalles por tarea
-for task_name, task_result in result['tasks'].items():
-    status = "✅" if task_result['success'] else "❌"
-    print(f"{status} {task_name}: {task_result['message']}")
-
-# Salir del shell
+print(result)
 exit()
 ```
 
-#### Método 3: Ejecutar desde la Línea de Comandos
+**¿Por qué es obligatoria?**
+- Descarga TODA la información inicial desde Panaccess (suscriptores, smartcards, productos, credenciales).
+- Las tareas periódicas de Celery Beat dependen de que estos datos ya existan en la base de datos local para realizar comparaciones.
+- Si activas Beat sin este paso previo, las tareas automáticas podrían intentar crear duplicados o fallar por falta de referencias.
+
+**Tareas automáticas de Celery (se ejecutan después de la sincronización inicial):**
+- `compare-and-update-subscribers`: Detecta nuevos suscriptores y actualiza datos (cada 10 minutos).
+- `compare-and-update-smartcards`: Verifica y descarga nuevas smartcards (cada 10 minutos).
+- `full-sync-nightly`: Valida y corrige todos los registros (diariamente a las 00:00).
+
+### 12.6.1 Verificar que la Sincronización se Completó
 
 ```bash
-# Cambiar al usuario wind
-sudo su - wind
-cd /opt/wind
-
-# Activar entorno virtual
-source env/bin/activate
-
-# Ejecutar directamente
-python -c "
-from wind.cron import execute_sync_tasks
-result = execute_sync_tasks()
-print(f'Éxito: {result[\"success\"]}')
-print(f'Mensaje: {result[\"message\"]}')
-for task_name, task_result in result['tasks'].items():
-    status = '✅' if task_result['success'] else '❌'
-    print(f'{status} {task_name}: {task_result[\"message\"]}')
-"
-```
-
-#### Verificar el Progreso de la Sincronización
-
-**Si usas el script de cron (Método 1):**
-- El script muestra el progreso en tiempo real en la terminal
-- Los logs se guardan automáticamente en `/var/log/wind/sync_tasks_completed.json`
-- Puedes ver los logs de Django en `/opt/wind/server.log`
-
-> ✅ **Nota (repo actual `serverpanaccess`) — logs reales**  
-> En este repo **no** se usa `/opt/wind/server.log` como log principal. En producción, los logs salen por 3 vías:
->
-> - **Archivos rotativos en el proyecto** (configurados en `serverpanaccess/settings.py`):
->   - `/opt/win-backend/logs/django.log`
->   - `/opt/win-backend/logs/panaccess.log`
->   - `/opt/win-backend/logs/tasks.log`
->   - `/opt/win-backend/logs/errors.log`
-> - **journald** (systemd): `journalctl -u win-gunicorn -f`, `journalctl -u win-celery-worker -f`, `journalctl -u win-celery-beat -f`
-> - **nginx**: `/var/log/nginx/access.log` y `/var/log/nginx/error.log`
-
-**Ver logs de la sincronización:**
-
-```bash
-# Ver logs de Django (donde se registra el progreso)
-sudo tail -f /opt/wind/server.log | grep -E "\[SYNC\]|\[UPDATE_SUBSCRIBERS\]"
-
-# Ver información de ejecución guardada
-cat /var/log/wind/sync_tasks_completed.json | python -m json.tool
-
-# Verificar si ya se ejecutó
-python ejecutar_sync_tasks.py --check
-```
-
-> ✅ **Nota (repo actual `serverpanaccess`) — cómo ver progreso**  
-> Si disparaste la sincronización por HTTP (por ejemplo `POST /wind/sync-subscribers/` con `SYNC_HTTP_ASYNC=true`), el progreso se observa en:
->
-> - `tail -f /opt/win-backend/logs/tasks.log`
-> - `journalctl -u win-celery-worker -f`
->
-> Y el endpoint `/api/v1/tasks/<task_id>/` (si está permitido por nginx/VPN) sirve para consultar el estado.
-
-#### Verificar que la Sincronización se Completó
-
-```bash
-# Cambiar al usuario wind
-sudo su - wind
-cd /opt/wind
-source env/bin/activate
-
-# Verificar información de ejecución
-python ejecutar_sync_tasks.py --check
-
-# Verificar que hay datos en la base de datos
+# Entrar al shell de Django
 python manage.py shell
+```
+
+Dentro del shell:
+
+```python
+from wind.models import ListOfSubscriber, ListOfSmartcards, SubscriberLoginInfo
+
+print(f"Suscriptores: {ListOfSubscriber.objects.count()}")
+print(f"Smartcards: {ListOfSmartcards.objects.count()}")
+print(f"Credenciales: {SubscriberLoginInfo.objects.count()}")
+
+exit()
+```
+
+**Si los conteos son mayores a 0**, la sincronización inicial fue exitosa y puedes proceder a activar Celery Beat.
+
+---
+
+## 13. Verificación del Despliegue
+
+### 13.1 Ejecutar Script de Verificación
+
+El proyecto incluye un comando de gestión para validar que todo esté correctamente configurado para producción:
+
+```bash
+cd /opt/win-backend
+source env/bin/activate
+python manage.py check_deploy --strict
+```
+
+Este comando verificará:
+- Que `DEBUG` sea `False`.
+- Que las variables obligatorias de Panaccess estén presentes.
+- Que la conexión a Redis y PostgreSQL sea exitosa.
+- Que el entorno no tenga configuraciones inseguras (como `ALLOWED_HOSTS = ['*']`).
+
+### 13.2 Probar Endpoints de Salud
+
+```bash
+# Probar localmente
+curl http://localhost:8000/health/
 ```
 
 Dentro del shell:
@@ -2518,102 +2299,21 @@ python ejecutar_sync_tasks.py --check
 python ejecutar_sync_tasks.py --force
 ```
 
-**La sincronización falla con errores de autenticación:**
-
-```bash
-# Verificar que las credenciales de Panaccess están correctas en .env
-cat /opt/wind/.env | grep -E "(url_panaccess|username|password|api_token)"
-
-# Verificar que puedes conectarte a Panaccess
-# (revisar logs para ver el error específico)
-tail -f /opt/wind/server.log | grep -E "\[SYNC\]|ERROR"
-```
+### 12.6.2 Solución de Problemas de Sincronización
 
 **La sincronización tarda mucho tiempo:**
-- Esto es normal si hay muchos registros (10,000+ smartcards pueden tomar 8-9 horas)
-- El script muestra el progreso en tiempo real
-- No interrumpir la sincronización, dejar que complete
-- Puedes verificar el progreso en los logs: `tail -f /opt/wind/server.log | grep "\[SYNC\]"`
+- Esto es normal si hay muchos registros (ej. 10,000+ smartcards pueden tomar varias horas).
+- No interrumpir el proceso en el shell.
+- Puedes monitorear el progreso en otra terminal viendo el log de tareas:
+  `tail -f /opt/win-backend/logs/tasks.log`
 
-**Verificar que la sincronización se completó correctamente:**
+**Errores de Autenticación:**
+- Verifica que las credenciales en `.env` sean idénticas a las de Panaccess.
+- Prueba la conectividad básica con `python manage.py check_deploy`.
 
-```bash
-# Ver información de ejecución guardada
-cat /var/log/wind/sync_tasks_completed.json | python -m json.tool
+---
 
-# Ver logs de Django
-grep "\[SYNC\].*finalizada\|completada\|success" /opt/wind/server.log | tail -5
-
-# Verificar estado
-python ejecutar_sync_tasks.py --check
-```
-
-**Error al crear el archivo de marcador:**
-
-```bash
-# Verificar permisos del directorio
-ls -la /var/log/wind/
-
-# Si no existe o no tiene permisos, crearlo
-sudo mkdir -p /var/log/wind
-sudo chown wind:wind /var/log/wind
-```
-
-### 12.7 Activar Tareas Automáticas con Celery Beat
-
-> ✅ **IMPORTANTE**: Después de ejecutar `execute_sync_tasks()` exitosamente, debes activar Celery Beat para que las tareas periódicas se ejecuten automáticamente.
-
-**Tareas periódicas que se ejecutarán automáticamente:**
-- `check_and_sync_subscribers_periodic`: Cada 5 minutos
-- `check_and_sync_smartcards_monthly`: Día 28 de cada mes a las 3:00 AM
-- `validate_and_sync_all_data_daily`: Cada día a las 22:00 (10:00 PM)
-
-**Activar Celery Beat (después de ejecutar execute_sync_tasks()):**
-
-```bash
-# Verificar que execute_sync_tasks() se completó exitosamente
-python ejecutar_sync_tasks.py --check
-
-# Si la sincronización fue exitosa, activar Beat
-sudo systemctl start celery-beat
-
-# Habilitar inicio automático
-sudo systemctl enable celery-beat
-
-# Verificar que está corriendo
-sudo systemctl status celery-beat
-# Debe mostrar: "active (running)"
-
-# Ver logs en tiempo real
-sudo journalctl -u celery-beat -f
-```
-
-**Verificar que las tareas periódicas se están ejecutando:**
-
-```bash
-# Ver logs del Worker para ver tareas ejecutándose
-sudo tail -f /var/log/wind/celery-worker.log
-
-# Ver tareas programadas en Beat
-sudo journalctl -u celery-beat | grep "Scheduler: Sending"
-
-# Verificar estado de Beat
-sudo systemctl status celery-beat
-```
-
-**Para desactivar las tareas automáticas temporalmente:**
-
-```bash
-# Detener Celery Beat (las tareas periódicas dejarán de ejecutarse)
-sudo systemctl stop celery-beat
-
-# Deshabilitar inicio automático
-sudo systemctl disable celery-beat
-
-# Para reactivarlas más tarde:
-sudo systemctl start celery-beat
-sudo systemctl enable celery-beat
-```
+## 13. Verificación del Despliegue
 
 ### 12.8 (Opcional) Configurar Flower para Monitoreo
 
@@ -2628,24 +2328,21 @@ Copiar el siguiente contenido:
 
 ```ini
 [Unit]
-Description=Celery Flower (Monitor) para wind
-After=network.target redis-server.service celery-worker.service
-Requires=redis-server.service celery-worker.service
+Description=Celery Flower (Monitor)
+After=network.target redis-server.service win-celery-worker.service
+Requires=redis-server.service win-celery-worker.service
 
 [Service]
 Type=simple
-User=wind
-Group=wind
-WorkingDirectory=/opt/wind
-Environment="PATH=/opt/wind/env/bin"
-EnvironmentFile=/opt/wind/.env
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/win-backend
+EnvironmentFile=/opt/win-backend/.env
 
 # Comando para ejecutar Flower
-# Cambiar usuario:contraseña en basic_auth si lo configuraste en .env
-ExecStart=/opt/wind/env/bin/celery -A ubuntu flower \
+ExecStart=/opt/win-backend/env/bin/python -m celery -A serverpanaccess flower \
     --port=5555 \
-    --basic_auth=${CELERY_FLOWER_BASIC_AUTH:-admin:admin} \
-    --logfile=/var/log/wind/celery-flower.log
+    --basic_auth=${CELERY_FLOWER_BASIC_AUTH:-admin:admin}
 
 # Reinicio automático
 Restart=always
@@ -2680,7 +2377,7 @@ Aunque Celery maneja las tareas principales de sincronización, algunas tareas d
 
 ```bash
 # Editar crontab del usuario wind
-sudo -u wind crontab -e
+sudo -u www-data crontab -e
 
 # Si te pregunta qué editor usar, selecciona nano (opción 1)
 ```
@@ -2689,32 +2386,14 @@ Agregar las siguientes líneas:
 
 ```cron
 # ============================================================================
-# Tareas de Mantenimiento (no relacionadas con Celery)
+# Tareas de Mantenimiento
 # ============================================================================
 
 # Limpiar sesiones expiradas de Django (diario a las 3 AM)
-0 3 * * * cd /opt/wind && /opt/wind/env/bin/python manage.py clearsessions >> /var/log/wind/clearsessions.log 2>&1
-
-# Limpiar winds expirados (cada hora)
-0 * * * * cd /opt/wind && /opt/wind/env/bin/python -c "from wind.models import windAuthRequest; from django.utils import timezone; windAuthRequest.objects.filter(status='pending', expires_at__lt=timezone.now()).update(status='expired')" >> /var/log/wind/cleanup.log 2>&1
-
-# Rotación de logs (semanal, domingos a las 4 AM)
-# Nota: El backup se hace automáticamente en el postrotate de logrotate
-0 4 * * 0 /usr/sbin/logrotate /etc/logrotate.d/wind
+0 3 * * * cd /opt/win-backend && /opt/win-backend/env/bin/python manage.py clearsessions >> /opt/win-backend/logs/clearsessions.log 2>&1
 
 # Backup automático de logs (diario a las 2 AM)
-# El script verifica tamaño y hace backup si es necesario
-0 2 * * * /opt/wind/backup_logs.sh auto >> /var/log/wind/backup_logs.log 2>&1
-
-# Limpieza de backups antiguos (semanal, domingos a las 3 AM)
-0 3 * * 0 /opt/wind/backup_logs.sh cleanup >> /var/log/wind/backup_logs.log 2>&1
-```
-
-**⚠️ NO agregar `ejecutar_sync_tasks.py` aquí:**
-- El script `ejecutar_sync_tasks.py` se ejecuta UNA SOLA VEZ manualmente
-- Tiene protección para evitar ejecuciones duplicadas
-- Si lo programas en crontab, se ejecutará periódicamente y puede causar problemas
-- Para ejecutarlo, usa: `python ejecutar_sync_tasks.py` (manual)
+0 2 * * * /opt/win-backend/backup_logs.sh auto >> /opt/win-backend/logs/backup_logs.log 2>&1
 
 Guardar y salir.
 
@@ -2731,35 +2410,35 @@ El sistema incluye un script de backup automático que:
 
 ```bash
 # Copiar el script de backup al servidor
-sudo cp backup_logs.sh /opt/wind/backup_logs.sh
+sudo cp backup_logs.sh /opt/win-backend/backup_logs.sh
 
 # Hacer ejecutable
-sudo chmod +x /opt/wind/backup_logs.sh
-sudo chown wind:wind /opt/wind/backup_logs.sh
+sudo chmod +x /opt/win-backend/backup_logs.sh
+sudo chown www-data /opt/win-backend/backup_logs.sh
 
 # Crear directorio de backups
 sudo mkdir -p /var/backups/wind/logs
-sudo chown wind:wind /var/backups/wind/logs
+sudo chown www-data /var/backups/wind/logs
 
 # Probar el script
-sudo -u wind /opt/wind/backup_logs.sh test
+sudo -u www-data /opt/win-backend/backup_logs.sh test
 ```
 
 #### 12.10.2 Configurar Backup Automático en Crontab
 
 ```bash
 # Editar crontab del usuario wind
-sudo crontab -u wind -e
+sudo crontab -u www-data -e
 ```
 
 Agregar las siguientes líneas:
 
 ```bash
 # Backup automático de logs (diario a las 2 AM)
-0 2 * * * /opt/wind/backup_logs.sh auto >> /var/log/wind/backup_logs.log 2>&1
+0 2 * * * /opt/win-backend/backup_logs.sh auto >> /var/log/wind/backup_logs.log 2>&1
 
 # Limpieza de backups antiguos (semanal, domingos a las 3 AM)
-0 3 * * 0 /opt/wind/backup_logs.sh cleanup >> /var/log/wind/backup_logs.log 2>&1
+0 3 * * 0 /opt/win-backend/backup_logs.sh cleanup >> /var/log/wind/backup_logs.log 2>&1
 ```
 
 #### 12.10.3 Configurar Rotación de Logs (logrotate)
@@ -2782,14 +2461,14 @@ Copiar el siguiente contenido:
     create 0640 wind wind
     postrotate
         # Hacer backup antes de rotar
-        /opt/wind/backup_logs.sh force > /dev/null 2>&1 || true
+        /opt/win-backend/backup_logs.sh force > /dev/null 2>&1 || true
         # Recargar servicios
         systemctl reload celery-worker > /dev/null 2>&1 || true
         systemctl reload celery-beat > /dev/null 2>&1 || true
     endscript
 }
 
-/opt/wind/server.log {
+/opt/win-backend/server.log {
     weekly
     rotate 4
     compress
@@ -2799,9 +2478,9 @@ Copiar el siguiente contenido:
     create 0640 wind wind
     postrotate
         # Hacer backup antes de rotar
-        /opt/wind/backup_logs.sh force > /dev/null 2>&1 || true
+        /opt/win-backend/backup_logs.sh force > /dev/null 2>&1 || true
         # Reiniciar servicios Daphne
-        /opt/wind/manage_services.sh restart > /dev/null 2>&1 || true
+        /opt/win-backend/manage_services.sh restart > /dev/null 2>&1 || true
     endscript
 }
 ```
@@ -2812,24 +2491,24 @@ Guardar y salir.
 
 ```bash
 # Verificar tamaño de logs y hacer backup si es necesario
-sudo -u wind /opt/wind/backup_logs.sh auto
+sudo -u www-data /opt/win-backend/backup_logs.sh auto
 
 # Forzar backup inmediato de todos los logs
-sudo -u wind /opt/wind/backup_logs.sh force
+sudo -u www-data /opt/win-backend/backup_logs.sh force
 
 # Ver estadísticas de backups
-sudo -u wind /opt/wind/backup_logs.sh stats
+sudo -u www-data /opt/win-backend/backup_logs.sh stats
 
 # Limpiar backups antiguos manualmente
-sudo -u wind /opt/wind/backup_logs.sh cleanup
+sudo -u www-data /opt/win-backend/backup_logs.sh cleanup
 
 # Modo de prueba (no hace backup real)
-sudo -u wind /opt/wind/backup_logs.sh test
+sudo -u www-data /opt/win-backend/backup_logs.sh test
 ```
 
 #### 12.10.5 Configuración del Script de Backup
 
-Puedes personalizar el script editando las variables al inicio de `/opt/wind/backup_logs.sh`:
+Puedes personalizar el script editando las variables al inicio de `/opt/win-backend/backup_logs.sh`:
 
 ```bash
 # Tamaño máximo antes de forzar backup (en MB)
@@ -2867,10 +2546,10 @@ Los backups se organizan así:
 
 ```bash
 # Verificar que el script está instalado
-ls -la /opt/wind/backup_logs.sh
+ls -la /opt/win-backend/backup_logs.sh
 
 # Probar el script
-sudo -u wind /opt/wind/backup_logs.sh test
+sudo -u www-data /opt/win-backend/backup_logs.sh test
 
 # Verificar que se creó el directorio de backup
 ls -la /var/backups/wind/logs/
@@ -2879,7 +2558,7 @@ ls -la /var/backups/wind/logs/
 tail -f /var/log/wind/backup_logs.log
 
 # Ver estadísticas
-sudo -u wind /opt/wind/backup_logs.sh stats
+sudo -u www-data /opt/win-backend/backup_logs.sh stats
 ```
 
 ### 12.11 Verificar que Celery está Funcionando
@@ -2935,13 +2614,13 @@ ls -la /var/log/wind/
 
 # 2. Si no existe, crearlo
 sudo mkdir -p /var/log/wind
-sudo chown wind:wind /var/log/wind
+sudo chown www-data /var/log/wind
 sudo chmod 755 /var/log/wind
 
 # 3. Crear los archivos de log
 sudo touch /var/log/wind/celery-worker.log
 sudo touch /var/log/wind/celery-beat.log
-sudo chown wind:wind /var/log/wind/*.log
+sudo chown www-data /var/log/wind/*.log
 sudo chmod 664 /var/log/wind/*.log
 
 # 4. Reiniciar los servicios
@@ -2969,7 +2648,7 @@ sudo journalctl -u celery-beat -f
 #### Método 4: Verificar desde la línea de comandos
 
 ```bash
-cd /opt/wind
+cd /opt/win-backend
 source env/bin/activate
 
 # Ver workers activos
@@ -2993,7 +2672,7 @@ python manage.py shell
 #### Método 5: Ejecutar una tarea de prueba
 
 ```bash
-cd /opt/wind
+cd /opt/win-backend
 source env/bin/activate
 
 # Ejecutar una tarea de prueba manualmente
@@ -3099,7 +2778,7 @@ echo "=== Verificando Nginx ==="
 sudo systemctl status nginx | head -5
 
 echo "=== Verificando Daphne ==="
-sudo /opt/wind/manage_services.sh status
+sudo /opt/win-backend/manage_services.sh status
 
 echo "=== Verificando Celery Worker ==="
 sudo systemctl status celery-worker | head -5
@@ -3109,7 +2788,7 @@ sudo systemctl status celery-beat | head -5
 
 # ====== 2. VERIFICAR CONEXIONES ======
 echo "=== Verificando conexión PostgreSQL ==="
-sudo -u wind psql -h localhost -U wind_user -d wind -c "SELECT version();"
+sudo -u www-data psql -h localhost -U wind_user -d wind -c "SELECT version();"
 
 echo "=== Verificando conexión Redis ==="
 redis-cli ping
@@ -3123,7 +2802,7 @@ echo "=== Últimos errores de Nginx ==="
 sudo tail -5 /var/log/nginx/wind_error.log
 
 echo "=== Últimos errores de Daphne ==="
-sudo journalctl -u wind@0 -n 10 --no-pager
+sudo journalctl -u win-gunicorn -n 10 --no-pager
 ```
 
 ### 13.2 Probar la API
@@ -3186,7 +2865,7 @@ sudo ufw status
 htop
 
 # Ver logs en tiempo real
-sudo journalctl -u wind@0 -f
+sudo journalctl -u win-gunicorn -f
 
 # Ver logs de Nginx
 sudo tail -f /var/log/nginx/wind_access.log
@@ -3209,7 +2888,7 @@ ps aux | grep daphne
 
 ```bash
 # Crear script de monitoreo
-sudo nano /opt/wind/health_check.sh
+sudo nano /opt/win-backend/health_check.sh
 ```
 
 Copiar el siguiente contenido:
@@ -3264,13 +2943,13 @@ echo "---" >> $LOG_FILE
 Guardar y hacer ejecutable:
 
 ```bash
-sudo chmod +x /opt/wind/health_check.sh
+sudo chmod +x /opt/win-backend/health_check.sh
 
 # Agregar al crontab para ejecutar cada 5 minutos
-sudo -u wind crontab -e
+sudo -u www-data crontab -e
 
 # Agregar esta línea:
-*/5 * * * * /opt/wind/health_check.sh
+*/5 * * * * /opt/win-backend/health_check.sh
 ```
 
 ### 14.3 Actualizar el Proyecto
@@ -3281,7 +2960,7 @@ sudo -u wind crontab -e
 
 ```bash
 # 1. Actualizar código
-cd /opt/wind
+cd /opt/win-backend
 git pull origin main
 # O si actualizas manualmente, copiar archivos nuevos
 
@@ -3299,7 +2978,7 @@ python manage.py collectstatic --noinput
 
 # 6. ⚠️ CRÍTICO: Reiniciar servicios que ejecutan código Python
 # Estos servicios tienen el código viejo en memoria y necesitan reiniciarse
-sudo /opt/wind/manage_services.sh restart  # Reinicia todas las instancias de Daphne
+sudo /opt/win-backend/manage_services.sh restart  # Reinicia todas las instancias de Daphne
 sudo systemctl restart celery-worker        # Reinicia Celery Worker
 sudo systemctl restart celery-beat           # Reinicia Celery Beat (si está activo)
 
@@ -3307,20 +2986,20 @@ sudo systemctl restart celery-beat           # Reinicia Celery Beat (si está ac
 # sudo systemctl reload nginx
 
 # 8. Verificar que todo está funcionando
-sudo /opt/wind/manage_services.sh status
+sudo /opt/win-backend/manage_services.sh status
 sudo systemctl status celery-worker
 sudo systemctl status celery-beat
 ```
 
 **Script rápido para actualización (opcional):**
 
-Puedes crear un script `/opt/wind/update.sh`:
+Puedes crear un script `/opt/win-backend/update.sh`:
 
 ```bash
 #!/bin/bash
 # Script para actualizar el proyecto y reiniciar servicios
 
-cd /opt/wind
+cd /opt/win-backend
 source env/bin/activate
 
 echo "📥 Actualizando código..."
@@ -3336,12 +3015,12 @@ echo "📁 Recolectando estáticos..."
 python manage.py collectstatic --noinput
 
 echo "🔄 Reiniciando servicios..."
-sudo /opt/wind/manage_services.sh restart
+sudo /opt/win-backend/manage_services.sh restart
 sudo systemctl restart celery-worker celery-beat
 
 echo "✅ Actualización completada"
 echo "📊 Verificando estado..."
-sudo /opt/wind/manage_services.sh status
+sudo /opt/win-backend/manage_services.sh status
 sudo systemctl status celery-worker --no-pager | head -10
 sudo systemctl status celery-beat --no-pager | head -10
 ```
@@ -3349,14 +3028,14 @@ sudo systemctl status celery-beat --no-pager | head -10
 Hacer ejecutable:
 
 ```bash
-sudo chmod +x /opt/wind/update.sh
-sudo chown wind:wind /opt/wind/update.sh
+sudo chmod +x /opt/win-backend/update.sh
+sudo chown www-data /opt/win-backend/update.sh
 ```
 
 Uso:
 
 ```bash
-/opt/wind/update.sh
+/opt/win-backend/update.sh
 ```
 
 ### 14.4 Backup de Base de Datos
@@ -3365,7 +3044,7 @@ Uso:
 
 ```bash
 # Crear script de backup
-sudo nano /opt/wind/backup_db.sh
+sudo nano /opt/win-backend/backup_db.sh
 ```
 
 ```bash
@@ -3389,11 +3068,11 @@ echo "Backup creado: $BACKUP_FILE"
 ```
 
 ```bash
-sudo chmod +x /opt/wind/backup_db.sh
+sudo chmod +x /opt/win-backend/backup_db.sh
 
 # Agregar al crontab (backup diario a las 2 AM)
 sudo crontab -e
-# Agregar: 0 2 * * * /opt/wind/backup_db.sh >> /var/log/wind/backup.log 2>&1
+# Agregar: 0 2 * * * /opt/win-backend/backup_db.sh >> /var/log/wind/backup.log 2>&1
 ```
 
 > 📝 **Nota:** El backup de logs se ejecuta automáticamente a las 2 AM (ver sección 12.10). Si quieres cambiar la hora del backup de base de datos para que no coincida, puedes usar otra hora (ej: 1 AM).
@@ -3481,10 +3160,10 @@ Y cambia `listen 443 ssl http2;` por `listen 80;`. Después de crear los certifi
 
 ```bash
 # Verificar que Daphne está corriendo
-sudo /opt/wind/manage_services.sh status
+sudo /opt/win-backend/manage_services.sh status
 
 # Ver logs de Daphne
-sudo journalctl -u wind@0 -n 50
+sudo journalctl -u win-gunicorn -n 50
 
 # Verificar puertos
 sudo ss -tlnp | grep 800
@@ -3494,9 +3173,9 @@ sudo ss -tlnp | grep 800
 
 ```bash
 # Corregir permisos del proyecto
-sudo chown -R wind:wind /opt/wind
-sudo chmod -R 755 /opt/wind
-sudo chmod 600 /opt/wind/.env
+sudo chown -R www-data /opt/win-backend
+sudo chmod -R 755 /opt/win-backend
+sudo chmod 600 /opt/win-backend/.env
 ```
 
 #### Error: "cannot open '/var/log/wind/celery-worker.log' for reading: No such file or directory"
@@ -3516,13 +3195,13 @@ ls -la /var/log/wind/
 
 # 2. Si no existe, crearlo
 sudo mkdir -p /var/log/wind
-sudo chown wind:wind /var/log/wind
+sudo chown www-data /var/log/wind
 sudo chmod 755 /var/log/wind
 
 # 3. Crear los archivos de log
 sudo touch /var/log/wind/celery-worker.log
 sudo touch /var/log/wind/celery-beat.log
-sudo chown wind:wind /var/log/wind/*.log
+sudo chown www-data /var/log/wind/*.log
 sudo chmod 664 /var/log/wind/*.log
 
 # 4. Reiniciar los servicios
@@ -3544,7 +3223,7 @@ sudo journalctl -u celery-beat -f
 
 ```bash
 # Asegurarse de que el entorno virtual está activado
-cd /opt/wind
+cd /opt/win-backend
 source env/bin/activate
 
 # Reinstalar dependencias
@@ -3594,7 +3273,7 @@ Si todo falla, reiniciar todos los servicios:
 
 ```bash
 # Detener todos los servicios
-sudo /opt/wind/manage_services.sh stop
+sudo /opt/win-backend/manage_services.sh stop
 sudo systemctl stop celery-worker celery-beat celery-flower
 sudo systemctl stop nginx
 sudo systemctl stop redis-server
@@ -3606,7 +3285,7 @@ sleep 5
 # Iniciar en orden
 sudo systemctl start postgresql
 sudo systemctl start redis-server
-sudo /opt/wind/manage_services.sh start
+sudo /opt/win-backend/manage_services.sh start
 sudo systemctl start celery-worker celery-beat
 sudo systemctl start celery-flower  # Opcional
 sudo systemctl start nginx
@@ -3614,7 +3293,7 @@ sudo systemctl start nginx
 # Verificar estado
 sudo systemctl status postgresql
 sudo systemctl status redis-server
-sudo /opt/wind/manage_services.sh status
+sudo /opt/win-backend/manage_services.sh status
 sudo systemctl status celery-worker
 sudo systemctl status celery-beat
 sudo systemctl status nginx
@@ -4607,7 +4286,7 @@ Descomentar las instancias de Daphne en el bloque `upstream wind_backend` (ver s
 #### Paso 5: Actualizar Script de Control
 
 ```bash
-sudo nano /opt/wind/manage_services.sh
+sudo nano /opt/win-backend/manage_services.sh
 ```
 
 Cambiar `INSTANCES=4` a:
@@ -4617,7 +4296,7 @@ Cambiar `INSTANCES=4` a:
 #### Paso 6: Actualizar Variables de Entorno
 
 ```bash
-sudo nano /opt/wind/.env
+sudo nano /opt/win-backend/.env
 ```
 
 Agregar o actualizar estas variables:
@@ -4651,14 +4330,14 @@ sudo nginx -t                    # Verificar configuración primero
 sudo systemctl restart nginx
 
 # Reiniciar instancias de Daphne
-sudo /opt/wind/manage_services.sh restart
+sudo /opt/win-backend/manage_services.sh restart
 ```
 
 #### Paso 8: Verificar
 
 ```bash
 # Verificar que todas las instancias están corriendo
-sudo /opt/wind/manage_services.sh status
+sudo /opt/win-backend/manage_services.sh status
 
 # Verificar puertos
 sudo ss -tlnp | grep 800
@@ -4707,7 +4386,7 @@ redis-cli INFO memory
 curl http://localhost/nginx_status  # Si está habilitado
 
 # Ver logs en tiempo real
-sudo journalctl -u wind@0 -f
+sudo journalctl -u win-gunicorn -f
 sudo tail -f /var/log/nginx/wind_access.log
 ```
 
@@ -4721,7 +4400,7 @@ sudo tail -f /var/log/nginx/wind_access.log
 
 ```bash
 # 1. Actualizar código
-cd /opt/wind
+cd /opt/win-backend
 git pull origin main
 
 # 2. Activar entorno y actualizar dependencias (si es necesario)
@@ -4731,12 +4410,12 @@ python manage.py migrate         # Solo si hay nuevas migraciones
 python manage.py collectstatic --noinput  # Solo si hay cambios en estáticos
 
 # 3. ⚠️ CRÍTICO: Reiniciar servicios que ejecutan código Python
-sudo /opt/wind/manage_services.sh restart  # Reinicia todas las instancias de Daphne
+sudo /opt/win-backend/manage_services.sh restart  # Reinicia todas las instancias de Daphne
 sudo systemctl restart celery-worker        # Reinicia Celery Worker
 sudo systemctl restart celery-beat          # Reinicia Celery Beat
 
 # 4. Verificar que todo está funcionando
-sudo /opt/wind/manage_services.sh status
+sudo /opt/win-backend/manage_services.sh status
 sudo systemctl status celery-worker
 sudo systemctl status celery-beat
 ```
@@ -4761,10 +4440,10 @@ Estos servicios **SÍ** necesitan reinicio después de `git pull`:
 
 ```bash
 # === GESTIÓN DE SERVICIOS ===
-sudo /opt/wind/manage_services.sh start     # Iniciar aplicación Daphne
-sudo /opt/wind/manage_services.sh stop      # Detener aplicación Daphne
-sudo /opt/wind/manage_services.sh restart   # Reiniciar aplicación Daphne
-sudo /opt/wind/manage_services.sh status    # Ver estado Daphne
+sudo /opt/win-backend/manage_services.sh start     # Iniciar aplicación Daphne
+sudo /opt/win-backend/manage_services.sh stop      # Detener aplicación Daphne
+sudo /opt/win-backend/manage_services.sh restart   # Reiniciar aplicación Daphne
+sudo /opt/win-backend/manage_services.sh status    # Ver estado Daphne
 
 sudo systemctl restart nginx                # Reiniciar Nginx
 sudo systemctl restart postgresql           # Reiniciar PostgreSQL
@@ -4774,7 +4453,7 @@ sudo systemctl restart celery-beat          # Reiniciar Celery Beat
 sudo systemctl restart celery-flower        # Reiniciar Flower (opcional)
 
 # === LOGS ===
-sudo journalctl -u wind@0 -f               # Ver logs de Daphne
+sudo journalctl -u win-gunicorn -f               # Ver logs de Daphne
 sudo journalctl -u celery-worker -f        # Ver logs de Celery Worker
 sudo journalctl -u celery-beat -f           # Ver logs de Celery Beat
 sudo tail -f /var/log/nginx/wind_error.log # Ver errores de Nginx
@@ -4783,14 +4462,14 @@ sudo tail -f /var/log/wind/celery-beat.log    # Ver logs de Beat
 sudo tail -f /var/log/nginx/wind_access.log | grep "/wind/"
 
 # === BACKUP DE LOGS ===
-sudo -u wind /opt/wind/backup_logs.sh auto   # Backup automático (verifica tamaño)
-sudo -u wind /opt/wind/backup_logs.sh force  # Forzar backup inmediato
-sudo -u wind /opt/wind/backup_logs.sh stats  # Ver estadísticas de backups
-sudo -u wind /opt/wind/backup_logs.sh cleanup # Limpiar backups antiguos
-sudo -u wind /opt/wind/backup_logs.sh test   # Modo de prueba
+sudo -u www-data /opt/win-backend/backup_logs.sh auto   # Backup automático (verifica tamaño)
+sudo -u www-data /opt/win-backend/backup_logs.sh force  # Forzar backup inmediato
+sudo -u www-data /opt/win-backend/backup_logs.sh stats  # Ver estadísticas de backups
+sudo -u www-data /opt/win-backend/backup_logs.sh cleanup # Limpiar backups antiguos
+sudo -u www-data /opt/win-backend/backup_logs.sh test   # Modo de prueba
 
 # === DJANGO ===
-cd /opt/wind && source env/bin/activate   # Activar entorno
+cd /opt/win-backend && source env/bin/activate   # Activar entorno
 python manage.py migrate                    # Aplicar migraciones
 python manage.py collectstatic --noinput   # Recolectar estáticos
 python manage.py createsuperuser           # Crear admin
@@ -4867,7 +4546,7 @@ systemctl list-unit-files | grep "wind@" | grep enabled
 
 ```bash
 # Habilitar todas las instancias para inicio automático
-sudo /opt/wind/manage_services.sh enable
+sudo /opt/win-backend/manage_services.sh enable
 
 # Verificar que todas quedaron habilitadas
 systemctl list-unit-files | grep "wind@" | grep enabled
@@ -4956,7 +4635,7 @@ sudo systemctl status redis-server
 sudo systemctl status postgresql
 
 # 2. Verificar instancias de Daphne
-sudo /opt/wind/manage_services.sh status
+sudo /opt/win-backend/manage_services.sh status
 
 # 3. Verificar Celery
 sudo systemctl status celery-worker
@@ -5067,7 +4746,7 @@ sudo systemctl status redis-server
 sudo systemctl status postgresql
 
 # Instancias de Daphne
-sudo /opt/wind/manage_services.sh status
+sudo /opt/win-backend/manage_services.sh status
 
 # Celery
 sudo systemctl status celery-worker
@@ -5085,8 +4764,8 @@ sudo systemctl enable redis-server && sudo systemctl start redis-server
 sudo systemctl enable postgresql && sudo systemctl start postgresql
 
 # Instancias de Daphne
-sudo /opt/wind/manage_services.sh enable
-sudo /opt/wind/manage_services.sh start
+sudo /opt/win-backend/manage_services.sh enable
+sudo /opt/win-backend/manage_services.sh start
 
 # Celery
 sudo systemctl enable celery-worker && sudo systemctl start celery-worker
@@ -5117,7 +4796,7 @@ Antes de considerar el despliegue completo, verificar:
 
 - [ ] PostgreSQL instalado y configurado
 - [ ] Redis instalado y configurado
-- [ ] Proyecto copiado a `/opt/wind`
+- [ ] Proyecto copiado a `/opt/win-backend`
 - [ ] Entorno virtual creado y dependencias instaladas
 - [ ] Archivo `.env` configurado con todas las variables (incluyendo Celery)
 - [ ] Migraciones aplicadas
